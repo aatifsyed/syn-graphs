@@ -466,6 +466,7 @@ pub enum ID {
     AnyIdent(syn::Ident),
     AnyLit(syn::Lit),
     Html(HtmlString),
+    DotInt(DotInt),
 }
 
 impl Parse for ID {
@@ -478,6 +479,9 @@ impl Parse for ID {
         }
         if input.peek(Token![<]) {
             return Ok(Self::Html(input.parse()?));
+        }
+        if input.peek(Token![.]) {
+            return Ok(Self::DotInt(input.parse()?));
         }
         Err(input.error("expected an identifier, literal or HTML string"))
     }
@@ -500,6 +504,13 @@ impl ID {
     fn ident(s: &str) -> Self {
         Self::AnyIdent(syn::Ident::new(s, proc_macro2::Span::call_site()))
     }
+}
+
+#[derive(Parse)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub struct DotInt {
+    pub dot: Token![.],
+    pub int: syn::LitInt,
 }
 
 #[cfg_attr(test, derive(Debug))]
