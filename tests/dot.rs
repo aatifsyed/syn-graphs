@@ -47,11 +47,10 @@ fn parse_gallery() {
         nonzero => {
             for e in fail {
                 let mut out = String::new();
-                miette::GraphicalReportHandler::new()
-                    .with_width(80)
-                    .render_report(&mut out, &e)
-                    .unwrap();
-                println!("{out}");
+                match miette::GraphicalReportHandler::new().render_report(&mut out, &e) {
+                    Ok(()) => println!("{out}"),
+                    Err(_) => println!("<FORMATTER FAILURE>\n{}\n", e.syn),
+                };
             }
             panic!("{nonzero} vectors failed ({pass} succeeded).")
         }

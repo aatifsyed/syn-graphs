@@ -76,6 +76,7 @@ enum_of_kws!(
     }
 );
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct Statements {
     pub list: Vec<(Stmt, Option<Token![;]>)>,
 }
@@ -95,13 +96,13 @@ impl Parse for Statements {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum Stmt {
     Attr(StmtAttr),
     Assign(StmtAssign),
-
     Node(StmtNode),
     Edge(StmtEdge),
-    // TODO(aatifsyed): subgraph
+    Subgraph(StmtSubgraph),
 }
 
 impl Parse for Stmt {
@@ -116,11 +117,15 @@ impl Parse for Stmt {
             // must be an edgeop
             return Ok(Self::Edge(input.parse()?));
         }
+        if input.peek(kw::subgraph) || input.peek(token::Brace) {
+            return Ok(Self::Subgraph(input.parse()?));
+        }
         Ok(Self::Node(input.parse()?))
     }
 }
 
 #[derive(Parse)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtAssign {
     pub left: ID,
     pub eq_token: Token![=],
@@ -128,6 +133,7 @@ pub struct StmtAssign {
 }
 
 #[derive(Parse)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtAttr {
     pub on: StmtAttrOn,
     pub attributes: Attributes,
@@ -219,8 +225,9 @@ enum_of_kws!(
 );
 
 #[derive(Parse)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtEdge {
-    pub id: ID, // TODO(aatifsyed): IDOrSubgraph
+    pub id: ID,
     /// Non-empty
     #[call(Self::parse_ops)]
     pub ops: Vec<(EdgeOp, ID)>,
@@ -238,6 +245,7 @@ impl StmtEdge {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum EdgeOp {
     Directed { dash: Token![-], gt: Token![>] },
     Undirected { dash1: Token![-], dash2: Token![-] },
@@ -390,7 +398,29 @@ impl Parse for Port {
     }
 }
 
-// TODO(aatifsyed): `subgraph`
+#[derive(Parse)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub struct StmtSubgraph {
+    #[call(Self::parse_prelude)]
+    pub prelude: Option<(kw::subgraph, Option<ID>)>,
+    #[brace]
+    pub brace_token: token::Brace,
+    #[inside(brace_token)]
+    pub statements: Statements,
+}
+
+impl StmtSubgraph {
+    fn parse_prelude(input: ParseStream) -> syn::Result<Option<(kw::subgraph, Option<ID>)>> {
+        if input.peek(token::Brace) {
+            return Ok(None);
+        }
+        let subgraph = input.parse()?;
+        if input.peek(token::Brace) {
+            return Ok(Some((subgraph, None)));
+        }
+        Ok(Some((subgraph, Some(input.parse()?))))
+    }
+}
 
 enum_of_kws!(
     pub enum CompassPoint {
@@ -415,13 +445,22 @@ enum_of_kws!(
     }
 );
 
-#[derive(Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum ID {
-    #[peek(syn::Ident::peek_any, name = "an ident")]
-    Ident(syn::Ident),
-    #[peek(syn::LitStr, name = "a string literal")]
-    LitStr(syn::LitStr),
+    AnyIdent(syn::Ident),
+    AnyLit(syn::Lit),
+}
+
+impl Parse for ID {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(syn::Ident::peek_any) {
+            return Ok(Self::AnyIdent(input.call(syn::Ident::parse_any)?));
+        }
+        if input.peek(syn::Lit) {
+            return Ok(Self::AnyLit(input.parse()?));
+        }
+        Err(input.error("expected an identifier or literal"))
+    }
 }
 
 #[test]
@@ -433,10 +472,13 @@ fn parse_id() {
 #[cfg(test)]
 impl ID {
     fn lit_str(s: &str) -> Self {
-        Self::LitStr(syn::LitStr::new(s, proc_macro2::Span::call_site()))
+        Self::AnyLit(syn::Lit::Str(syn::LitStr::new(
+            s,
+            proc_macro2::Span::call_site(),
+        )))
     }
     fn ident(s: &str) -> Self {
-        Self::Ident(syn::Ident::new(s, proc_macro2::Span::call_site()))
+        Self::AnyIdent(syn::Ident::new(s, proc_macro2::Span::call_site()))
     }
 }
 
