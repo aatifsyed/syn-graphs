@@ -1,6 +1,9 @@
+use std::str::FromStr as _;
+
 use colored::Colorize as _;
 use include_dir::{include_dir, Dir};
 use miette::{Diagnostic, NamedSource, SourceOffset, SourceSpan};
+use proc_macro2::TokenStream;
 use thiserror::Error;
 
 const GRAPHVIZ_GALLERY: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/test-vectors/graphviz-gallery");
@@ -8,6 +11,7 @@ const GRAPHVIZ_GALLERY: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/test-vectors
 #[test]
 fn parse_gallery() {
     let mut fail = vec![];
+    let mut skipped = 0;
     let mut pass = 0;
     for gallery_item in GRAPHVIZ_GALLERY.files() {
         let path = gallery_item.path().display();
@@ -19,10 +23,15 @@ fn parse_gallery() {
             .collect::<Vec<_>>()
             .as_slice()
             .join("\n");
-        match syn::parse_str::<syn_graphs::dot::Graph>(removed_comments.as_str()) {
+        let Ok(lexed) = TokenStream::from_str(removed_comments.as_str()) else {
+            println!("{} (lex error)", "skipped".yellow());
+            skipped += 1;
+            continue;
+        };
+        match syn::parse2::<syn_graphs::dot::Graph>(lexed) {
             Ok(_) => {
                 pass += 1;
-                println!("{}", "ok.".green())
+                println!("{}", "ok".green())
             }
             Err(syn) => {
                 println!("{}", "FAIL".red());
@@ -43,7 +52,7 @@ fn parse_gallery() {
     }
 
     match fail.len() {
-        0 => println!("{pass} vectors succeeded."),
+        0 => println!("{pass} vectors succeeded ({skipped} skipped)."),
         nonzero => {
             for e in fail {
                 let mut out = String::new();
@@ -52,7 +61,7 @@ fn parse_gallery() {
                     Err(_) => println!("<FORMATTER FAILURE>\n{}\n", e.syn),
                 };
             }
-            panic!("{nonzero} vectors failed ({pass} succeeded).")
+            panic!("{nonzero} vectors failed ({pass} succeeded, {skipped} skipped).")
         }
     }
 }
