@@ -29,6 +29,10 @@ pub mod kw {
     syn::custom_keyword!(c);
 }
 
+pub mod pun {
+    syn::custom_punctuation!(DirectedEdge, ->);
+}
+
 #[derive(Parse)]
 pub struct Graph {
     pub strict: Option<kw::strict>,
@@ -293,11 +297,25 @@ pub struct StmtEdge {
 impl StmtEdge {
     fn parse_ops(input: ParseStream) -> syn::Result<Vec<(EdgeOp, NodeIdOrSubgraph)>> {
         let mut ops = vec![(input.parse()?, input.parse()?)];
-        while input.peek(Token![-]) {
+        while input.peek(pun::DirectedEdge) || input.peek(Token![-]) {
             ops.push((input.parse()?, input.parse()?))
         }
         Ok(ops)
     }
+}
+
+#[test]
+fn parse_stmt_edge() {
+    assert_eq!(
+        StmtEdge {
+            from: NodeIdOrSubgraph::ident("alice"),
+            ops: vec![(EdgeOp::undirected(), NodeIdOrSubgraph::ident("bob"))],
+            attrs: None
+        },
+        syn::parse_quote! {
+            alice -- bob
+        }
+    )
 }
 
 impl ToTokens for StmtEdge {
@@ -328,37 +346,46 @@ impl Parse for NodeIdOrSubgraph {
     }
 }
 
-#[derive(ToTokens)]
+#[cfg(test)]
+impl NodeIdOrSubgraph {
+    fn ident(s: &str) -> Self {
+        Self::NodeId(NodeId {
+            id: ID::ident(s),
+            port: None,
+        })
+    }
+}
+
+#[derive(ToTokens, Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum EdgeOp {
-    Directed { dash: Token![-], gt: Token![>] },
-    Undirected { dash1: Token![-], dash2: Token![-] },
+    #[peek(pun::DirectedEdge, name = "->")]
+    Directed(pun::DirectedEdge),
+    #[peek(Token![-], name = "--")]
+    Undirected(UndirectedEdge),
+}
+
+#[derive(ToTokens, Parse)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq, Default))]
+pub struct UndirectedEdge(Token![-], Token![-]);
+
+#[test]
+#[should_panic = "expected `--`"]
+fn custom_punct_for_directed_edge_does_not_work() {
+    // cannot use this because the lexer will always give us Alone, Alone, which isn't parsed
+    syn::custom_punctuation!(Demo, --);
+    let _: Demo = syn::parse_quote!(--);
 }
 
 #[cfg(test)]
 impl EdgeOp {
     /// ->
     fn directed() -> Self {
-        Self::Directed {
-            dash: tok::minus(),
-            gt: tok::gt(),
-        }
+        Self::Directed(tok::directed_edge())
     }
-}
-
-impl Parse for EdgeOp {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let dash = input.parse()?;
-        match input.peek(Token![-]) {
-            true => Ok(Self::Undirected {
-                dash1: dash,
-                dash2: input.parse()?,
-            }),
-            false => Ok(Self::Directed {
-                dash,
-                gt: input.parse()?,
-            }),
-        }
+    /// --
+    fn undirected() -> Self {
+        Self::Undirected(tok::undirected_edge())
     }
 }
 
@@ -673,16 +700,16 @@ fn parse_html_string() {
 
 #[cfg(test)]
 mod tok {
-    use super::kw;
+    use super::{kw, pun};
     use syn::token;
 
     crate::tok!(
         bracket -> token::Bracket,
         c -> kw::c,
         colon -> token::Colon,
+        directed_edge -> pun::DirectedEdge,
         eq -> token::Eq,
-        gt -> token::Gt,
         lt -> token::Lt,
-        minus -> token::Minus,
+        undirected_edge -> super::UndirectedEdge
     );
 }
