@@ -1,7 +1,9 @@
+use derive_quote_to_tokens::ToTokens;
 use derive_syn_parse::Parse;
 #[cfg(test)]
 use pretty_assertions::assert_eq;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use syn::{
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
@@ -35,7 +37,7 @@ macro_rules! enum_of_kws {
             ),* $(,)?
         }
     ) => {
-        #[derive(Parse)]
+        #[derive(derive_syn_parse::Parse, derive_quote_to_tokens::ToTokens)]
         #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
         pub enum $this {
             $(
@@ -68,6 +70,22 @@ impl Graph {
     }
 }
 
+impl ToTokens for Graph {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            strict,
+            direction,
+            id,
+            brace_token,
+            statements,
+        } = self;
+        strict.to_tokens(tokens);
+        direction.to_tokens(tokens);
+        id.to_tokens(tokens);
+        brace_token.surround(tokens, |inner| statements.to_tokens(inner))
+    }
+}
+
 enum_of_kws!(
     pub enum Directedness {
         #[name = "graph"]
@@ -97,7 +115,18 @@ impl Parse for Statements {
     }
 }
 
+impl ToTokens for Statements {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self { list } = self;
+        for (stmt, semi) in list {
+            stmt.to_tokens(tokens);
+            semi.to_tokens(tokens)
+        }
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens)]
 pub enum Stmt {
     Attr(StmtAttr),
     Assign(StmtAssign),
@@ -150,8 +179,7 @@ fn parse_stmt() {
         syn::parse_quote!("node0":f0 -> "node1":f0)
     )
 }
-
-#[derive(Parse)]
+#[derive(ToTokens, Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtAssign {
     pub left: ID,
@@ -159,7 +187,7 @@ pub struct StmtAssign {
     pub right: ID,
 }
 
-#[derive(Parse)]
+#[derive(Parse, ToTokens)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtAttr {
     pub on: StmtAttrOn,
@@ -193,6 +221,15 @@ impl Parse for Attributes {
     }
 }
 
+impl ToTokens for Attributes {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self { lists } = self;
+        for list in lists {
+            list.to_tokens(tokens)
+        }
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct AttrList {
     pub bracket_token: token::Bracket,
@@ -211,7 +248,18 @@ impl Parse for AttrList {
     }
 }
 
-#[derive(Parse)]
+impl ToTokens for AttrList {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self { bracket_token, kvs } = self;
+        bracket_token.surround(tokens, |inner| {
+            for kv in kvs {
+                kv.to_tokens(inner)
+            }
+        })
+    }
+}
+
+#[derive(ToTokens, Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct AttrKV {
     pub left: ID,
@@ -272,7 +320,20 @@ impl StmtEdge {
     }
 }
 
+impl ToTokens for StmtEdge {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self { from, ops, attrs } = self;
+        from.to_tokens(tokens);
+        for (op, to) in ops {
+            op.to_tokens(tokens);
+            to.to_tokens(tokens)
+        }
+        attrs.to_tokens(tokens)
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens)]
 pub enum NodeIdOrSubgraph {
     Subgraph(StmtSubgraph),
     NodeId(NodeId),
@@ -287,6 +348,7 @@ impl Parse for NodeIdOrSubgraph {
     }
 }
 
+#[derive(ToTokens)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum EdgeOp {
     Directed { dash: Token![-], gt: Token![>] },
@@ -320,7 +382,7 @@ impl Parse for EdgeOp {
     }
 }
 
-#[derive(Parse)]
+#[derive(ToTokens, Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtNode {
     pub node_id: NodeId,
@@ -372,7 +434,7 @@ fn parse_stmt_node() {
     );
 }
 
-#[derive(Parse)]
+#[derive(ToTokens, Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct NodeId {
     pub id: ID,
@@ -411,6 +473,7 @@ fn parse_node_id() {
     );
 }
 
+#[derive(ToTokens)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum Port {
     ID {
@@ -475,6 +538,21 @@ impl StmtSubgraph {
     }
 }
 
+impl ToTokens for StmtSubgraph {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            prelude,
+            brace_token,
+            statements,
+        } = self;
+        if let Some((kw, id)) = prelude {
+            kw.to_tokens(tokens);
+            id.to_tokens(tokens)
+        }
+        brace_token.surround(tokens, |inner| statements.to_tokens(inner))
+    }
+}
+
 enum_of_kws!(
     pub enum CompassPoint {
         #[name = "n"]
@@ -498,6 +576,7 @@ enum_of_kws!(
     }
 );
 
+#[derive(ToTokens)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum ID {
     AnyIdent(syn::Ident),
@@ -543,13 +622,14 @@ impl ID {
     }
 }
 
-#[derive(Parse)]
+#[derive(Parse, ToTokens)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct DotInt {
     pub dot: Token![.],
     pub int: syn::LitInt,
 }
 
+#[derive(ToTokens)]
 #[cfg_attr(test, derive(Debug))]
 pub struct HtmlString {
     pub lt: Token![<],
