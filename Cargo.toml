@@ -11,8 +11,15 @@ proc-macro2 = { version = "1.0.67", default-features = false }
 syn = { version = "2.0.37", default-features = false, features = ["parsing"] }
 
 [dev-dependencies]
+colored = "2.0.4"
+include_dir = "0.7.3"
+miette = { version = "5.10.0", features = ["fancy"] }
 pretty_assertions = "1.4.0"
+proc-macro2 = { version = "1.0.67", default-features = false, features = [
+    "span-locations",
+] }
 syn = { version = "2.0.37", default-features = false, features = [
     "printing",
     "extra-traits",
 ] }
+thiserror = "1.0.48"
