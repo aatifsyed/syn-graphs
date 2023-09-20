@@ -1,6 +1,7 @@
 use derive_syn_parse::Parse;
 #[cfg(test)]
 use pretty_assertions::assert_eq;
+use proc_macro2::TokenStream;
 use syn::{
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
@@ -464,6 +465,7 @@ enum_of_kws!(
 pub enum ID {
     AnyIdent(syn::Ident),
     AnyLit(syn::Lit),
+    Html(HtmlString),
 }
 
 impl Parse for ID {
@@ -474,7 +476,10 @@ impl Parse for ID {
         if input.peek(syn::Lit) {
             return Ok(Self::AnyLit(input.parse()?));
         }
-        Err(input.error("expected an identifier or literal"))
+        if input.peek(Token![<]) {
+            return Ok(Self::Html(input.parse()?));
+        }
+        Err(input.error("expected an identifier, literal or HTML string"))
     }
 }
 
@@ -497,6 +502,67 @@ impl ID {
     }
 }
 
+#[cfg_attr(test, derive(Debug))]
+pub struct HtmlString {
+    pub lt: Token![<],
+    pub stream: TokenStream,
+}
+
+#[cfg(test)]
+impl PartialEq for HtmlString {
+    fn eq(&self, other: &Self) -> bool {
+        self.lt == other.lt && self.stream.to_string() == other.stream.to_string()
+    }
+}
+
+#[cfg(test)]
+impl Eq for HtmlString {}
+
+impl Parse for HtmlString {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        use proc_macro2::TokenTree::Punct;
+
+        let lt = input.parse()?;
+        let mut nesting = 1usize;
+        input.step(|cursor| {
+            let mut stream = TokenStream::new();
+            let mut rest = *cursor;
+            while let Some((tt, next)) = rest.token_tree() {
+                match &tt {
+                    Punct(p) if p.as_char() == '>' => nesting -= 1,
+                    Punct(p) if p.as_char() == '<' => nesting += 1,
+                    _ => {}
+                };
+                rest = next;
+                stream.extend([tt]);
+            }
+            if nesting == 0 {
+                return Ok((Self { lt, stream }, syn::buffer::Cursor::empty()));
+            }
+            Err(cursor.error("unmatched `<` in html string"))
+        })
+    }
+}
+
+#[test]
+fn parse_html_string() {
+    use quote::quote;
+    assert_eq!(
+        HtmlString {
+            lt: tok::lt(),
+            stream: quote!(hello>)
+        },
+        syn::parse_quote!(<hello>)
+    );
+    assert_eq!(
+        HtmlString {
+            lt: tok::lt(),
+            stream: quote!(hello <div> I am in a div </div> >)
+        },
+        syn::parse_quote!(<hello <div> I am in a div </div> >)
+    );
+}
+
 #[cfg(test)]
 mod tok {
     use super::kw;
@@ -509,5 +575,5 @@ mod tok {
             )*
         };
     }
-    tok!(colon -> token::Colon, bracket -> token::Bracket, c -> kw::c, eq -> token::Eq);
+    tok!(colon -> token::Colon, bracket -> token::Bracket, c -> kw::c, eq -> token::Eq, lt -> token::Lt);
 }
