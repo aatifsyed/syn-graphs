@@ -227,21 +227,36 @@ enum_of_kws!(
 #[derive(Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtEdge {
-    pub id: ID,
+    pub from: NodeIdOrSubgraph,
     /// Non-empty
     #[call(Self::parse_ops)]
-    pub ops: Vec<(EdgeOp, ID)>,
+    pub ops: Vec<(EdgeOp, NodeIdOrSubgraph)>,
     #[peek(token::Bracket)]
     pub attrs: Option<Attributes>,
 }
 
 impl StmtEdge {
-    fn parse_ops(input: ParseStream) -> syn::Result<Vec<(EdgeOp, ID)>> {
+    fn parse_ops(input: ParseStream) -> syn::Result<Vec<(EdgeOp, NodeIdOrSubgraph)>> {
         let mut ops = vec![(input.parse()?, input.parse()?)];
         while input.peek(Token![-]) {
             ops.push((input.parse()?, input.parse()?))
         }
         Ok(ops)
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub enum NodeIdOrSubgraph {
+    Subgraph(StmtSubgraph),
+    NodeId(NodeId),
+}
+
+impl Parse for NodeIdOrSubgraph {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(kw::subgraph) || input.peek(token::Brace) {
+            return Ok(Self::Subgraph(input.parse()?));
+        }
+        Ok(Self::NodeId(input.parse()?))
     }
 }
 
