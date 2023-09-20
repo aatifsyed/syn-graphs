@@ -114,8 +114,7 @@ impl Parse for Stmt {
         if input.peek2(Token![=]) {
             return Ok(Self::Assign(input.parse()?));
         }
-        if input.peek2(Token![-]) {
-            // must be an edgeop
+        if input.fork().parse::<StmtEdge>().is_ok() {
             return Ok(Self::Edge(input.parse()?));
         }
         if input.peek(kw::subgraph) || input.peek(token::Brace) {
@@ -123,6 +122,33 @@ impl Parse for Stmt {
         }
         Ok(Self::Node(input.parse()?))
     }
+}
+
+#[test]
+fn parse_stmt() {
+    assert_eq!(
+        Stmt::Edge(StmtEdge {
+            from: NodeIdOrSubgraph::NodeId(NodeId {
+                id: ID::lit_str("node0"),
+                port: Some(Port::ID {
+                    colon: tok::colon(),
+                    id: ID::ident("f0")
+                })
+            }),
+            ops: vec![(
+                EdgeOp::directed(),
+                NodeIdOrSubgraph::NodeId(NodeId {
+                    id: ID::lit_str("node1"),
+                    port: Some(Port::ID {
+                        colon: tok::colon(),
+                        id: ID::ident("f0")
+                    })
+                })
+            )],
+            attrs: None
+        }),
+        syn::parse_quote!("node0":f0 -> "node1":f0)
+    )
 }
 
 #[derive(Parse)]
@@ -265,6 +291,17 @@ impl Parse for NodeIdOrSubgraph {
 pub enum EdgeOp {
     Directed { dash: Token![-], gt: Token![>] },
     Undirected { dash1: Token![-], dash2: Token![-] },
+}
+
+#[cfg(test)]
+impl EdgeOp {
+    /// ->
+    fn directed() -> Self {
+        Self::Directed {
+            dash: tok::minus(),
+            gt: tok::gt(),
+        }
+    }
 }
 
 impl Parse for EdgeOp {
@@ -586,5 +623,13 @@ mod tok {
             )*
         };
     }
-    tok!(colon -> token::Colon, bracket -> token::Bracket, c -> kw::c, eq -> token::Eq, lt -> token::Lt);
+    tok!(
+        bracket -> token::Bracket,
+        c -> kw::c,
+        colon -> token::Colon,
+        eq -> token::Eq,
+        gt -> token::Gt,
+        lt -> token::Lt,
+        minus -> token::Minus,
+    );
 }
