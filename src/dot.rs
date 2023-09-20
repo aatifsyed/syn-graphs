@@ -1,3 +1,4 @@
+use crate::enum_of_kws;
 use derive_quote_to_tokens::ToTokens;
 use derive_syn_parse::Parse;
 #[cfg(test)]
@@ -26,27 +27,6 @@ pub mod kw {
     syn::custom_keyword!(w);
     syn::custom_keyword!(nw);
     syn::custom_keyword!(c);
-}
-
-macro_rules! enum_of_kws {
-    (
-        pub enum $this:ident {
-            $(
-                #[name = $lit:literal]
-                $variant:ident($inner:ty)
-            ),* $(,)?
-        }
-    ) => {
-        #[derive(derive_syn_parse::Parse, derive_quote_to_tokens::ToTokens)]
-        #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-        pub enum $this {
-            $(
-                // stringify!($inner) doesn't work here
-                #[peek($inner, name = $lit)]
-                $variant($inner),
-            )*
-        }
-    };
 }
 
 #[derive(Parse)]
@@ -696,14 +676,7 @@ mod tok {
     use super::kw;
     use syn::token;
 
-    macro_rules! tok {
-        ($($fn_name:ident -> $ty_name:ty),* $(,)?) => {
-            $(
-                pub fn $fn_name() -> $ty_name { Default::default() }
-            )*
-        };
-    }
-    tok!(
+    crate::tok!(
         bracket -> token::Bracket,
         c -> kw::c,
         colon -> token::Colon,
