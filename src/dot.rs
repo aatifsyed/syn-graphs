@@ -8,6 +8,7 @@ use quote::ToTokens;
 use syn::{
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
+    spanned::Spanned as _,
     token, Token,
 };
 
@@ -625,6 +626,15 @@ pub struct DotInt {
 pub struct HtmlString {
     pub lt: Token![<],
     pub stream: TokenStream,
+}
+
+impl HtmlString {
+    pub fn source(&self) -> Option<String> {
+        self.lt
+            .span()
+            .join(self.stream.span())
+            .and_then(|it| it.source_text())
+    }
 }
 
 impl PartialEq for HtmlString {
