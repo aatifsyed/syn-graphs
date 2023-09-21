@@ -1,4 +1,5 @@
 pub mod dot;
+pub mod mermaid;
 
 macro_rules! enum_of_kws {
     (
