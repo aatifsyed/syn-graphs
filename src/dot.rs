@@ -33,7 +33,7 @@ pub mod pun {
     syn::custom_punctuation!(DirectedEdge, ->);
 }
 
-#[derive(Parse)]
+#[derive(Parse, Debug, PartialEq, Eq)]
 pub struct Graph {
     pub strict: Option<kw::strict>,
     pub direction: Directedness,
@@ -79,7 +79,7 @@ enum_of_kws!(
     }
 );
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Statements {
     pub list: Vec<(Stmt, Option<Token![;]>)>,
 }
@@ -108,9 +108,7 @@ impl ToTokens for Statements {
         }
     }
 }
-
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-#[derive(ToTokens)]
+#[derive(Debug, PartialEq, Eq, ToTokens)]
 pub enum Stmt {
     Attr(StmtAttr),
     Assign(StmtAssign),
@@ -163,16 +161,14 @@ fn parse_stmt() {
         syn::parse_quote!("node0":f0 -> "node1":f0)
     )
 }
-#[derive(ToTokens, Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct StmtAssign {
     pub left: ID,
     pub eq_token: Token![=],
     pub right: ID,
 }
 
-#[derive(Parse, ToTokens)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Parse, ToTokens, Debug, PartialEq, Eq)]
 pub struct StmtAttr {
     pub on: StmtAttrOn,
     pub attributes: Attributes,
@@ -189,7 +185,7 @@ enum_of_kws!(
     }
 );
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Attributes {
     /// Non-empty
     pub lists: Vec<AttrList>,
@@ -214,7 +210,7 @@ impl ToTokens for Attributes {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Debug, PartialEq, Eq)]
 pub struct AttrList {
     pub bracket_token: token::Bracket,
     pub kvs: Vec<AttrKV>,
@@ -243,8 +239,7 @@ impl ToTokens for AttrList {
     }
 }
 
-#[derive(ToTokens, Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct AttrKV {
     pub left: ID,
     pub eq_token: Token![=],
@@ -283,8 +278,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Parse, Debug, PartialEq, Eq)]
 pub struct StmtEdge {
     pub from: NodeIdOrSubgraph,
     /// Non-empty
@@ -330,8 +324,7 @@ impl ToTokens for StmtEdge {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
-#[derive(ToTokens)]
+#[derive(Debug, PartialEq, Eq, ToTokens)]
 pub enum NodeIdOrSubgraph {
     Subgraph(StmtSubgraph),
     NodeId(NodeId),
@@ -356,8 +349,7 @@ impl NodeIdOrSubgraph {
     }
 }
 
-#[derive(ToTokens, Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
 pub enum EdgeOp {
     #[peek(pun::DirectedEdge, name = "->")]
     Directed(pun::DirectedEdge),
@@ -365,8 +357,7 @@ pub enum EdgeOp {
     Undirected(UndirectedEdge),
 }
 
-#[derive(ToTokens, Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq, Default))]
+#[derive(ToTokens, Parse, Debug, PartialEq, Eq, Default)]
 pub struct UndirectedEdge(Token![-], Token![-]);
 
 #[test]
@@ -389,8 +380,7 @@ impl EdgeOp {
     }
 }
 
-#[derive(ToTokens, Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct StmtNode {
     pub node_id: NodeId,
     #[peek(token::Bracket)]
@@ -441,8 +431,7 @@ fn parse_stmt_node() {
     );
 }
 
-#[derive(ToTokens, Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct NodeId {
     pub id: ID,
     #[peek(token::Colon)]
@@ -480,8 +469,7 @@ fn parse_node_id() {
     );
 }
 
-#[derive(ToTokens)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Debug, PartialEq, Eq)]
 pub enum Port {
     ID {
         colon: Token![:],
@@ -521,8 +509,7 @@ impl Parse for Port {
     }
 }
 
-#[derive(Parse)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Parse, Debug, PartialEq, Eq)]
 pub struct StmtSubgraph {
     #[call(Self::parse_prelude)]
     pub prelude: Option<(kw::subgraph, Option<ID>)>,
@@ -583,8 +570,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(ToTokens)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(ToTokens, Debug, PartialEq, Eq)]
 pub enum ID {
     AnyIdent(syn::Ident),
     AnyLit(syn::Lit),
@@ -629,28 +615,24 @@ impl ID {
     }
 }
 
-#[derive(Parse, ToTokens)]
-#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[derive(Parse, ToTokens, Debug, PartialEq, Eq)]
 pub struct DotInt {
     pub dot: Token![.],
     pub int: syn::LitInt,
 }
 
-#[derive(ToTokens)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(ToTokens, Debug)]
 pub struct HtmlString {
     pub lt: Token![<],
     pub stream: TokenStream,
 }
 
-#[cfg(test)]
 impl PartialEq for HtmlString {
     fn eq(&self, other: &Self) -> bool {
         self.lt == other.lt && self.stream.to_string() == other.stream.to_string()
     }
 }
 
-#[cfg(test)]
 impl Eq for HtmlString {}
 
 impl Parse for HtmlString {

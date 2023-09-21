@@ -7,6 +7,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = std::fs::read_to_string("/dev/stdin")?;
     let tokens = TokenStream::from_str(&source)?;
     let ast = syn_graphs::dot::Graph::parse.parse2(tokens)?;
-    // println!("{}", syn_graphs::unparse::dot(&ast));
+    println!("{}", syn_graphs::unparse::dot(&ast));
     Ok(())
 }

@@ -18,6 +18,8 @@ mod prettyplease {
     pub(crate) mod token;
 }
 
+pub mod unparse;
+
 macro_rules! enum_of_kws {
     (
         pub enum $this:ident {
@@ -27,12 +29,19 @@ macro_rules! enum_of_kws {
             ),* $(,)?
         }
     ) => {
-        #[derive(derive_syn_parse::Parse, derive_quote_to_tokens::ToTokens)]
-        #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+        #[derive(
+            derive_syn_parse::Parse,
+            derive_quote_to_tokens::ToTokens,
+            derive_more::Display,
+            Debug,
+            PartialEq,
+            Eq
+        )]
         pub enum $this {
             $(
                 // stringify!($inner) doesn't work here
                 #[peek($inner, name = $lit)]
+                #[display(fmt = $lit)]
                 $variant($inner),
             )*
         }
