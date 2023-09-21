@@ -1,10 +1,12 @@
-use crate::enum_of_kws;
+use crate::{enum_of_kws, CodeFormatterExt as _, Printable};
 use derive_quote_to_tokens::ToTokens;
 use derive_syn_parse::Parse;
+use indenter::CodeFormatter;
 #[cfg(test)]
 use pretty_assertions::assert_eq;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use std::fmt::{self, Write as _};
 use syn::{
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
@@ -12,25 +14,31 @@ use syn::{
 };
 
 pub mod kw {
-    syn::custom_keyword!(strict);
-    syn::custom_keyword!(graph);
-    syn::custom_keyword!(digraph);
-    syn::custom_keyword!(node);
-    syn::custom_keyword!(edge);
-    syn::custom_keyword!(subgraph);
-    syn::custom_keyword!(n);
-    syn::custom_keyword!(ne);
-    syn::custom_keyword!(e);
-    syn::custom_keyword!(se);
-    syn::custom_keyword!(s);
-    syn::custom_keyword!(sw);
-    syn::custom_keyword!(w);
-    syn::custom_keyword!(nw);
-    syn::custom_keyword!(c);
+    use super::*;
+    macro_rules! custom_keywords {
+        ($($it:ident),* $(,)?) => {
+            $(
+                syn::custom_keyword!($it);
+                impl Printable for $it {
+                    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+                        f.write_str(stringify!($it))
+                    }
+                }
+            )*
+        };
+    }
+    custom_keywords!(strict, graph, digraph, node, edge, subgraph, n, ne, e, se, s, sw, w, nw, c,);
 }
 
 pub mod pun {
+    use super::*;
+
     syn::custom_punctuation!(DirectedEdge, ->);
+    impl Printable for DirectedEdge {
+        fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+            f.write_str("->")
+        }
+    }
 }
 
 #[derive(Parse)]
@@ -66,7 +74,40 @@ impl ToTokens for Graph {
         strict.to_tokens(tokens);
         direction.to_tokens(tokens);
         id.to_tokens(tokens);
-        brace_token.surround(tokens, |inner| statements.to_tokens(inner))
+        brace_token.surround(tokens, |tokens| statements.to_tokens(tokens))
+    }
+}
+
+impl Printable for Graph {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self {
+            strict,
+            direction,
+            id,
+            brace_token,
+            statements,
+        } = self;
+        if let Some(strict) = strict {
+            f.print(strict)?;
+            f.sep()?
+        }
+        f.print(direction)?;
+        f.sep()?;
+        if let Some(id) = id {
+            f.print(id)?;
+            f.sep()?
+        }
+        f.delimit(brace_token, |f| {
+            f.newline()?;
+            f.print(statements)
+        })
+    }
+}
+
+impl fmt::Display for Graph {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = CodeFormatter::new(f, "    ");
+        f.print(self)
     }
 }
 
@@ -109,6 +150,18 @@ impl ToTokens for Statements {
     }
 }
 
+impl Printable for Statements {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { list } = self;
+        for (stmt, _always_semi) in list {
+            f.print(stmt)?;
+            f.print(token::Semi::default())?;
+            f.newline()?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[derive(ToTokens)]
 pub enum Stmt {
@@ -134,6 +187,18 @@ impl Parse for Stmt {
             return Ok(Self::Subgraph(input.parse()?));
         }
         Ok(Self::Node(input.parse()?))
+    }
+}
+
+impl Printable for Stmt {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        match self {
+            Stmt::Attr(it) => f.print(it),
+            Stmt::Assign(it) => f.print(it),
+            Stmt::Node(it) => f.print(it),
+            Stmt::Edge(it) => f.print(it),
+            Stmt::Subgraph(it) => f.print(it),
+        }
     }
 }
 
@@ -171,11 +236,35 @@ pub struct StmtAssign {
     pub right: ID,
 }
 
+impl Printable for StmtAssign {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self {
+            left,
+            eq_token,
+            right,
+        } = self;
+        f.print(left)?;
+        f.sep()?;
+        f.print(eq_token)?;
+        f.sep()?;
+        f.print(right)
+    }
+}
+
 #[derive(Parse, ToTokens)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtAttr {
     pub on: StmtAttrOn,
     pub attributes: Attributes,
+}
+
+impl Printable for StmtAttr {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { on, attributes } = self;
+        f.print(on)?;
+        f.sep()?;
+        f.print(attributes)
+    }
 }
 
 enum_of_kws!(
@@ -214,6 +303,16 @@ impl ToTokens for Attributes {
     }
 }
 
+impl Printable for Attributes {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { lists } = self;
+        for lis in lists {
+            lis.print_to(f)?
+        }
+        Ok(())
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct AttrList {
     pub bracket_token: token::Bracket,
@@ -243,6 +342,22 @@ impl ToTokens for AttrList {
     }
 }
 
+impl Printable for AttrList {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { bracket_token, kvs } = self;
+        f.delimit(bracket_token, |f| {
+            let do_nl = kvs.len() > 1;
+            for kv in kvs {
+                f.print(kv)?;
+                if do_nl {
+                    f.newline()?
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
 #[derive(ToTokens, Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct AttrKV {
@@ -251,6 +366,23 @@ pub struct AttrKV {
     pub right: ID,
     #[call(Self::parse_sep)]
     pub trailing: Option<AttrSep>,
+}
+
+impl Printable for AttrKV {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self {
+            left,
+            eq_token,
+            right,
+            trailing: _always_semi,
+        } = self;
+        f.print(left)?;
+        f.sep()?;
+        f.print(eq_token)?;
+        f.sep()?;
+        f.print(right)?;
+        f.print(token::Semi::default())
+    }
 }
 
 #[cfg(test)]
@@ -276,9 +408,9 @@ impl AttrKV {
 
 enum_of_kws!(
     pub enum AttrSep {
-        #[name = "comma"]
+        #[name = ","]
         Comma(token::Comma),
-        #[name = "semi"]
+        #[name = ";"]
         Semi(token::Semi),
     }
 );
@@ -301,6 +433,24 @@ impl StmtEdge {
             ops.push((input.parse()?, input.parse()?))
         }
         Ok(ops)
+    }
+}
+
+impl Printable for StmtEdge {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { from, ops, attrs } = self;
+        f.print(from)?;
+        for (op, to) in ops {
+            f.sep()?;
+            f.print(op)?;
+            f.sep()?;
+            f.print(to)?
+        }
+        if let Some(attrs) = attrs {
+            f.sep()?;
+            f.print(attrs)?
+        }
+        Ok(())
     }
 }
 
@@ -346,6 +496,15 @@ impl Parse for NodeIdOrSubgraph {
     }
 }
 
+impl Printable for NodeIdOrSubgraph {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        match self {
+            NodeIdOrSubgraph::Subgraph(it) => f.print(it),
+            NodeIdOrSubgraph::NodeId(it) => f.print(it),
+        }
+    }
+}
+
 #[cfg(test)]
 impl NodeIdOrSubgraph {
     fn ident(s: &str) -> Self {
@@ -363,6 +522,15 @@ pub enum EdgeOp {
     Directed(pun::DirectedEdge),
     #[peek(Token![-], name = "--")]
     Undirected(UndirectedEdge),
+}
+
+impl Printable for EdgeOp {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        match self {
+            EdgeOp::Directed(it) => f.print(it),
+            EdgeOp::Undirected(_) => f.print("--"),
+        }
+    }
 }
 
 #[derive(ToTokens, Parse)]
@@ -395,6 +563,17 @@ pub struct StmtNode {
     pub node_id: NodeId,
     #[peek(token::Bracket)]
     pub attributes: Option<Attributes>,
+}
+
+impl Printable for StmtNode {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self {
+            node_id,
+            attributes,
+        } = self;
+        f.print(node_id)?;
+        f.print(attributes)
+    }
 }
 
 #[test]
@@ -447,6 +626,14 @@ pub struct NodeId {
     pub id: ID,
     #[peek(token::Colon)]
     pub port: Option<Port>,
+}
+
+impl Printable for NodeId {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { id, port } = self;
+        f.print(id)?;
+        f.print(port)
+    }
 }
 
 #[test]
@@ -521,6 +708,32 @@ impl Parse for Port {
     }
 }
 
+impl Printable for Port {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        match self {
+            Port::ID { colon, id } => {
+                f.print(colon)?;
+                f.print(id)
+            }
+            Port::Compass { colon, compass } => {
+                f.print(colon)?;
+                f.print(compass)
+            }
+            Port::IDAndCompass {
+                colon1,
+                id,
+                colon2,
+                compass,
+            } => {
+                f.print(colon1)?;
+                f.print(id)?;
+                f.print(colon2)?;
+                f.print(compass)
+            }
+        }
+    }
+}
+
 #[derive(Parse)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct StmtSubgraph {
@@ -560,6 +773,23 @@ impl ToTokens for StmtSubgraph {
     }
 }
 
+impl Printable for StmtSubgraph {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self {
+            prelude,
+            brace_token,
+            statements,
+        } = self;
+        f.print(kw::subgraph::default())?; // always
+        if let Some((_subgraph, Some(id))) = prelude {
+            f.sep()?;
+            f.print(id)?
+        }
+        f.sep()?;
+        f.delimit(brace_token, |f| f.print(statements))
+    }
+}
+
 enum_of_kws!(
     pub enum CompassPoint {
         #[name = "n"]
@@ -590,6 +820,17 @@ pub enum ID {
     AnyLit(syn::Lit),
     Html(HtmlString),
     DotInt(DotInt),
+}
+
+impl Printable for ID {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        match self {
+            ID::AnyIdent(it) => f.print(it),
+            ID::AnyLit(it) => f.print(it),
+            ID::Html(it) => f.print(it),
+            ID::DotInt(it) => f.print(it),
+        }
+    }
 }
 
 impl Parse for ID {
@@ -636,11 +877,25 @@ pub struct DotInt {
     pub int: syn::LitInt,
 }
 
+impl Printable for DotInt {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { dot: _, int } = self;
+        f.write_fmt(format_args!(".{int}"))
+    }
+}
+
 #[derive(ToTokens)]
 #[cfg_attr(test, derive(Debug))]
 pub struct HtmlString {
     pub lt: Token![<],
     pub stream: TokenStream,
+}
+
+impl Printable for HtmlString {
+    fn print_to<W: fmt::Write>(&self, f: &mut CodeFormatter<'_, W>) -> fmt::Result {
+        let Self { lt: _, stream } = self;
+        f.write_fmt(format_args!("< {stream}"))
+    }
 }
 
 #[cfg(test)]
