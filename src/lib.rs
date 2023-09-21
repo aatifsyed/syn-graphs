@@ -1,6 +1,23 @@
 pub mod dot;
 pub mod mermaid;
 
+use prettyplease::{algorithm, ring};
+
+const MARGIN: isize = 89;
+const INDENT: isize = 4;
+const MIN_SPACE: isize = 60;
+
+#[allow(unused)]
+#[path = "../extern/prettyplease-0.2.14/src"]
+mod prettyplease {
+    pub(crate) mod algorithm;
+    pub(crate) mod convenience;
+    pub(crate) mod iter;
+    pub(crate) mod lit;
+    pub(crate) mod ring;
+    pub(crate) mod token;
+}
+
 macro_rules! enum_of_kws {
     (
         pub enum $this:ident {
