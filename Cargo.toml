@@ -7,7 +7,9 @@ edition = "2021"
 
 [dependencies]
 derive-syn-parse = "0.1.5"
-proc-macro2 = { version = "1.0.67", default-features = false, features = ["span-locations"] }
+proc-macro2 = { version = "1.0.67", default-features = false, features = [
+    "span-locations",
+] }
 syn = { version = "2.0.37", default-features = false, features = [
     "parsing",
     "printing",
@@ -15,7 +17,6 @@ syn = { version = "2.0.37", default-features = false, features = [
 ] }
 quote = { version = "1.0.33", default-features = false }
 derive-quote-to-tokens = { version = "0.1.0", path = "../derive-quote-to-tokens" }
-pretty = "0.12.1"
 derive_more = { version = "0.99.17", default-features = false, features = [
     "display",
 ] }
