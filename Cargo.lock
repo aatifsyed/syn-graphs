@@ -76,6 +76,8 @@ dependencies = [
 [[package]]
 name = "derive-quote-to-tokens"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49f604b71ee4eb4938f3f44838bad113df69e576d96f8daa1708453d72f5ac8b"
 dependencies = [
  "syn-helpers",
 ]

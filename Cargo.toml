@@ -16,7 +16,7 @@ syn = { version = "2.0.37", default-features = false, features = [
     "extra-traits",
 ] }
 quote = { version = "1.0.33", default-features = false }
-derive-quote-to-tokens = { version = "0.1.0", path = "../derive-quote-to-tokens" }
+derive-quote-to-tokens = "0.1.0"
 derive_more = { version = "0.99.17", default-features = false, features = [
     "display",
 ] }
