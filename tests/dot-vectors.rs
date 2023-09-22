@@ -170,35 +170,35 @@ mod fixup {
     use proc_macro2::{Span, TokenStream};
     use syn::token;
     use syn_graphs::dot::{
-        kw, AttrSep, Attributes, Graph, NodeIdOrSubgraph, Statements, Stmt, StmtSubgraph, ID,
+        kw, AttrSep, Attrs, EdgeTarget, Graph, Stmt, StmtList, StmtSubgraph, ID,
     };
     pub fn visit_graph(it: &mut Graph) {
-        visit_statements(&mut it.statements)
+        visit_stmt_list(&mut it.stmt_list)
     }
 
-    fn visit_statements(it: &mut Statements) {
-        for (it, punct) in &mut it.list {
-            visit_stmt(it);
-            *punct = Some(token::Semi::default());
+    fn visit_stmt_list(it: &mut StmtList) {
+        for (stmt, semi) in &mut it.stmts {
+            visit_stmt(stmt);
+            *semi = Some(token::Semi::default());
         }
     }
 
     fn visit_stmt(it: &mut Stmt) {
         match it {
-            Stmt::Attr(it) => visit_attributes(&mut it.attributes),
+            Stmt::Attr(it) => visit_attributes(&mut it.attrs),
             Stmt::Assign(it) => {
                 visit_id(&mut it.left);
                 visit_id(&mut it.right);
             }
             Stmt::Node(it) => {
                 visit_id(&mut it.node_id.id);
-                if let Some(it) = it.attributes.as_mut() {
+                if let Some(it) = it.attrs.as_mut() {
                     visit_attributes(it)
                 }
             }
             Stmt::Edge(it) => {
                 visit_node_id_or_subgraph(&mut it.from);
-                for (_, it) in &mut it.ops {
+                for (_, it) in &mut it.edges {
                     visit_node_id_or_subgraph(it)
                 }
                 if let Some(it) = it.attrs.as_mut() {
@@ -209,10 +209,10 @@ mod fixup {
         }
     }
 
-    fn visit_node_id_or_subgraph(it: &mut NodeIdOrSubgraph) {
+    fn visit_node_id_or_subgraph(it: &mut EdgeTarget) {
         match it {
-            NodeIdOrSubgraph::Subgraph(it) => visit_subgraph(it),
-            NodeIdOrSubgraph::NodeId(it) => visit_id(&mut it.id),
+            EdgeTarget::Subgraph(it) => visit_subgraph(it),
+            EdgeTarget::NodeId(it) => visit_id(&mut it.id),
         }
     }
 
@@ -222,11 +222,11 @@ mod fixup {
             Some((_, None)) => {}
             None => it.prelude = Some((kw::subgraph::default(), None)),
         }
-        visit_statements(&mut it.statements)
+        visit_stmt_list(&mut it.statements)
     }
 
-    fn visit_attributes(it: &mut Attributes) {
-        for it in it.lists.iter_mut().flat_map(|it| it.kvs.iter_mut()) {
+    fn visit_attributes(it: &mut Attrs) {
+        for it in it.lists.iter_mut().flat_map(|it| it.assigns.iter_mut()) {
             visit_id(&mut it.left);
             visit_id(&mut it.right);
             it.trailing = Some(AttrSep::Comma(token::Comma::default()));

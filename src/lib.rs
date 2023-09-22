@@ -1,5 +1,8 @@
 pub mod dot;
 pub mod mermaid;
+pub mod unparse;
+
+// transplant the unparsing logic from prettyplease
 
 use prettyplease::{algorithm, ring};
 
@@ -17,8 +20,6 @@ mod prettyplease {
     pub(crate) mod ring;
     pub(crate) mod token;
 }
-
-pub mod unparse;
 
 macro_rules! enum_of_kws {
     (

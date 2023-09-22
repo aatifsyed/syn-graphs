@@ -14,10 +14,10 @@ mod dot {
             &mut self,
             Graph {
                 strict,
-                direction,
+                directedness,
                 id,
                 brace_token: _,
-                statements: Statements { list },
+                stmt_list: StmtList { stmts },
             }: &Graph,
         ) {
             self.cbox(0); // Printer::file
@@ -25,16 +25,16 @@ mod dot {
             if strict.is_some() {
                 self.word("strict ");
             }
-            match direction {
-                Directedness::Graph(_) => self.word("graph "),
-                Directedness::Digraph(_) => self.word("digraph "),
+            match directedness {
+                GraphDirectedness::Graph(_) => self.word("graph "),
+                GraphDirectedness::Digraph(_) => self.word("digraph "),
             }
             if let Some(id) = id {
                 self.id(id)
             }
             self.word(" {");
             self.hardbreak_if_nonempty();
-            for (stmt, _semi) in list {
+            for (stmt, _semi) in stmts {
                 self.stmt(stmt);
             }
             self.offset(-INDENT); // Printer::item_mod
@@ -53,66 +53,64 @@ mod dot {
                     self.word(" = ");
                     self.id(right);
                 }
-                Stmt::Attr(StmtAttr { on, attributes }) => {
-                    match on {
-                        StmtAttrOn::Graph(_) => self.word("graph "),
-                        StmtAttrOn::Node(_) => self.word("node "),
-                        StmtAttrOn::Edge(_) => self.word("edge "),
+                Stmt::Attr(StmtAttr { target, attrs }) => {
+                    match target {
+                        AttrTarget::Graph(_) => self.word("graph "),
+                        AttrTarget::Node(_) => self.word("node "),
+                        AttrTarget::Edge(_) => self.word("edge "),
                     };
-                    self.attributes(attributes);
+                    self.attrs(attrs);
                 }
-                Stmt::Node(StmtNode {
-                    node_id,
-                    attributes,
-                }) => {
+                Stmt::Node(StmtNode { node_id, attrs }) => {
                     self.node_id(node_id);
                     self.nbsp();
-                    if let Some(attributes) = attributes {
-                        self.attributes(attributes);
+                    if let Some(attrs) = attrs {
+                        self.attrs(attrs);
                     }
                 }
-                Stmt::Edge(StmtEdge { from, ops, attrs }) => {
-                    self.node_id_or_subgraph(from);
-                    for (op, to) in ops {
-                        match op {
-                            EdgeOp::Directed(_) => self.word(" -> "),
-                            EdgeOp::Undirected(_) => self.word(" -- "),
+                Stmt::Edge(StmtEdge { from, edges, attrs }) => {
+                    self.edge_target(from);
+                    for (directedness, to) in edges {
+                        match directedness {
+                            EdgeDirectedness::Directed(_) => self.word(" -> "),
+                            EdgeDirectedness::Undirected(_) => self.word(" -- "),
                         }
-                        self.node_id_or_subgraph(to)
+                        self.edge_target(to)
                     }
-                    if let Some(attributes) = attrs {
+                    if let Some(attrs) = attrs {
                         self.nbsp();
-                        self.attributes(attributes);
+                        self.attrs(attrs);
                     }
                 }
-                Stmt::Subgraph(subgraph) => self.subgraph(subgraph),
+                Stmt::Subgraph(subgraph) => self.stmt_subgraph(subgraph),
             }
             self.word(";");
             self.hardbreak();
         }
-        fn node_id_or_subgraph(&mut self, it: &NodeIdOrSubgraph) {
+        fn edge_target(&mut self, it: &EdgeTarget) {
             match it {
-                NodeIdOrSubgraph::Subgraph(subgraph) => self.subgraph(subgraph),
-                NodeIdOrSubgraph::NodeId(node_id) => self.node_id(node_id),
+                EdgeTarget::Subgraph(subgraph) => self.stmt_subgraph(subgraph),
+                EdgeTarget::NodeId(node_id) => self.node_id(node_id),
             }
         }
-        fn subgraph(
+        fn stmt_subgraph(
             &mut self,
             StmtSubgraph {
                 prelude,
                 brace_token: _,
-                statements: Statements { list },
+                statements: StmtList { stmts },
             }: &StmtSubgraph,
         ) {
             self.word("subgraph ");
             if let Some((_subgraph, Some(id))) = prelude {
                 self.id(id);
+                self.nbsp()
             }
             self.cbox(INDENT); // Printer::expr_block
             self.word("{"); // Printer::small_block
-            if !list.is_empty() {
+            if !stmts.is_empty() {
                 self.space();
-                for (stmt, _semi) in list {
+                for (stmt, _semi) in stmts {
                     self.stmt(stmt)
                 }
                 self.offset(-INDENT);
@@ -164,7 +162,7 @@ mod dot {
                 }
             }
         }
-        fn attributes(&mut self, Attributes { lists }: &Attributes) {
+        fn attrs(&mut self, Attrs { lists }: &Attrs) {
             for attr_list in lists {
                 self.attr_list(attr_list)
             }
@@ -173,15 +171,15 @@ mod dot {
             &mut self,
             AttrList {
                 bracket_token: _,
-                kvs,
+                assigns,
             }: &AttrList,
         ) {
             self.word("["); // Printer::expr_array
             self.nbsp();
             self.cbox(INDENT);
             self.zerobreak();
-            for element in kvs.iter().delimited() {
-                self.attr_kv(&element);
+            for element in assigns.iter().delimited() {
+                self.attr_assign(&element);
                 self.trailing_comma(element.is_last);
             }
             self.offset(-INDENT);
@@ -189,14 +187,14 @@ mod dot {
             self.nbsp();
             self.word("]");
         }
-        fn attr_kv(
+        fn attr_assign(
             &mut self,
-            AttrKV {
+            AttrAssign {
                 left,
                 eq_token: _,
                 right,
                 trailing: _,
-            }: &AttrKV,
+            }: &AttrAssign,
         ) {
             self.id(left);
             self.word(" = ");

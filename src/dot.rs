@@ -37,13 +37,13 @@ pub mod pun {
 #[derive(Parse, Debug, PartialEq, Eq)]
 pub struct Graph {
     pub strict: Option<kw::strict>,
-    pub direction: Directedness,
+    pub directedness: GraphDirectedness,
     #[call(Self::maybe_id)]
     pub id: Option<ID>,
     #[brace]
     pub brace_token: token::Brace,
     #[inside(brace_token)]
-    pub statements: Statements,
+    pub stmt_list: StmtList,
 }
 
 impl Graph {
@@ -59,20 +59,20 @@ impl ToTokens for Graph {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self {
             strict,
-            direction,
+            directedness,
             id,
             brace_token,
-            statements,
+            stmt_list,
         } = self;
         strict.to_tokens(tokens);
-        direction.to_tokens(tokens);
+        directedness.to_tokens(tokens);
         id.to_tokens(tokens);
-        brace_token.surround(tokens, |inner| statements.to_tokens(inner))
+        brace_token.surround(tokens, |inner| stmt_list.to_tokens(inner))
     }
 }
 
 enum_of_kws!(
-    pub enum Directedness {
+    pub enum GraphDirectedness {
         #[name = "graph"]
         Graph(kw::graph),
         #[name = "digraph"]
@@ -81,11 +81,11 @@ enum_of_kws!(
 );
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Statements {
-    pub list: Vec<(Stmt, Option<Token![;]>)>,
+pub struct StmtList {
+    pub stmts: Vec<(Stmt, Option<Token![;]>)>,
 }
 
-impl Parse for Statements {
+impl Parse for StmtList {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut list = vec![];
         while !input.is_empty() {
@@ -96,14 +96,14 @@ impl Parse for Statements {
             };
             list.push((stmt, semi))
         }
-        Ok(Self { list })
+        Ok(Self { stmts: list })
     }
 }
 
-impl ToTokens for Statements {
+impl ToTokens for StmtList {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let Self { list } = self;
-        for (stmt, semi) in list {
+        let Self { stmts } = self;
+        for (stmt, semi) in stmts {
             stmt.to_tokens(tokens);
             semi.to_tokens(tokens)
         }
@@ -120,7 +120,7 @@ pub enum Stmt {
 
 impl Parse for Stmt {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        if input.fork().parse::<StmtAttrOn>().is_ok() {
+        if input.fork().parse::<AttrTarget>().is_ok() {
             return Ok(Self::Attr(input.parse()?));
         }
         if input.peek2(Token![=]) {
@@ -140,16 +140,16 @@ impl Parse for Stmt {
 fn parse_stmt() {
     assert_eq!(
         Stmt::Edge(StmtEdge {
-            from: NodeIdOrSubgraph::NodeId(NodeId {
+            from: EdgeTarget::NodeId(NodeId {
                 id: ID::lit_str("node0"),
                 port: Some(Port::ID {
                     colon: tok::colon(),
                     id: ID::ident("f0")
                 })
             }),
-            ops: vec![(
-                EdgeOp::directed(),
-                NodeIdOrSubgraph::NodeId(NodeId {
+            edges: vec![(
+                EdgeDirectedness::directed(),
+                EdgeTarget::NodeId(NodeId {
                     id: ID::lit_str("node1"),
                     port: Some(Port::ID {
                         colon: tok::colon(),
@@ -171,12 +171,12 @@ pub struct StmtAssign {
 
 #[derive(Parse, ToTokens, Debug, PartialEq, Eq)]
 pub struct StmtAttr {
-    pub on: StmtAttrOn,
-    pub attributes: Attributes,
+    pub target: AttrTarget,
+    pub attrs: Attrs,
 }
 
 enum_of_kws!(
-    pub enum StmtAttrOn {
+    pub enum AttrTarget {
         #[name = "graph"]
         Graph(kw::graph),
         #[name = "node"]
@@ -187,12 +187,12 @@ enum_of_kws!(
 );
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Attributes {
+pub struct Attrs {
     /// Non-empty
     pub lists: Vec<AttrList>,
 }
 
-impl Parse for Attributes {
+impl Parse for Attrs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut lists = vec![input.parse()?];
         while input.peek(token::Bracket) {
@@ -202,7 +202,7 @@ impl Parse for Attributes {
     }
 }
 
-impl ToTokens for Attributes {
+impl ToTokens for Attrs {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self { lists } = self;
         for list in lists {
@@ -214,27 +214,33 @@ impl ToTokens for Attributes {
 #[derive(Debug, PartialEq, Eq)]
 pub struct AttrList {
     pub bracket_token: token::Bracket,
-    pub kvs: Vec<AttrKV>,
+    pub assigns: Vec<AttrAssign>,
 }
 
 impl Parse for AttrList {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut kvs = vec![];
+        let mut assigns = vec![];
         let content;
         let bracket_token = syn::bracketed!(content in input);
         while !content.is_empty() {
-            kvs.push(content.parse()?)
+            assigns.push(content.parse()?)
         }
-        Ok(Self { bracket_token, kvs })
+        Ok(Self {
+            bracket_token,
+            assigns,
+        })
     }
 }
 
 impl ToTokens for AttrList {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let Self { bracket_token, kvs } = self;
+        let Self {
+            bracket_token,
+            assigns,
+        } = self;
         bracket_token.surround(tokens, |inner| {
-            for kv in kvs {
-                kv.to_tokens(inner)
+            for assign in assigns {
+                assign.to_tokens(inner)
             }
         })
     }
@@ -245,10 +251,13 @@ fn parse_attr_list_penultimate_html() {
     assert_eq!(
         AttrList {
             bracket_token: tok::bracket(),
-            kvs: vec![
-                AttrKV::standalone(ID::ident("color"), ID::lit_str("#88000022")),
-                AttrKV::standalone(ID::ident("label"), ID::html(quote::quote!(<em>hello!</em>))),
-                AttrKV::standalone(ID::ident("shape"), ID::ident("plain")),
+            assigns: vec![
+                AttrAssign::standalone(ID::ident("color"), ID::lit_str("#88000022")),
+                AttrAssign::standalone(
+                    ID::ident("label"),
+                    ID::html(quote::quote!(<em>hello!</em>))
+                ),
+                AttrAssign::standalone(ID::ident("shape"), ID::ident("plain")),
             ],
         },
         syn::parse_quote!(
@@ -262,7 +271,7 @@ fn parse_attr_list_penultimate_html() {
 }
 
 #[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
-pub struct AttrKV {
+pub struct AttrAssign {
     pub left: ID,
     pub eq_token: Token![=],
     pub right: ID,
@@ -271,7 +280,7 @@ pub struct AttrKV {
 }
 
 #[cfg(test)]
-impl AttrKV {
+impl AttrAssign {
     fn standalone(left: ID, right: ID) -> Self {
         Self {
             left,
@@ -282,7 +291,7 @@ impl AttrKV {
     }
 }
 
-impl AttrKV {
+impl AttrAssign {
     fn parse_sep(input: ParseStream) -> syn::Result<Option<AttrSep>> {
         if input.peek(Token![,]) || input.peek(Token![;]) {
             return Ok(Some(input.parse()?));
@@ -302,21 +311,21 @@ enum_of_kws!(
 
 #[derive(Parse, Debug, PartialEq, Eq)]
 pub struct StmtEdge {
-    pub from: NodeIdOrSubgraph,
+    pub from: EdgeTarget,
     /// Non-empty
-    #[call(Self::parse_ops)]
-    pub ops: Vec<(EdgeOp, NodeIdOrSubgraph)>,
+    #[call(Self::parse_edges)]
+    pub edges: Vec<(EdgeDirectedness, EdgeTarget)>,
     #[peek(token::Bracket)]
-    pub attrs: Option<Attributes>,
+    pub attrs: Option<Attrs>,
 }
 
 impl StmtEdge {
-    fn parse_ops(input: ParseStream) -> syn::Result<Vec<(EdgeOp, NodeIdOrSubgraph)>> {
-        let mut ops = vec![(input.parse()?, input.parse()?)];
+    fn parse_edges(input: ParseStream) -> syn::Result<Vec<(EdgeDirectedness, EdgeTarget)>> {
+        let mut edges = vec![(input.parse()?, input.parse()?)];
         while input.peek(pun::DirectedEdge) || input.peek(Token![-]) {
-            ops.push((input.parse()?, input.parse()?))
+            edges.push((input.parse()?, input.parse()?))
         }
-        Ok(ops)
+        Ok(edges)
     }
 }
 
@@ -324,8 +333,8 @@ impl StmtEdge {
 fn parse_stmt_edge() {
     assert_eq!(
         StmtEdge {
-            from: NodeIdOrSubgraph::ident("alice"),
-            ops: vec![(EdgeOp::undirected(), NodeIdOrSubgraph::ident("bob"))],
+            from: EdgeTarget::ident("alice"),
+            edges: vec![(EdgeDirectedness::undirected(), EdgeTarget::ident("bob"))],
             attrs: None
         },
         syn::parse_quote! {
@@ -336,10 +345,10 @@ fn parse_stmt_edge() {
 
 impl ToTokens for StmtEdge {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let Self { from, ops, attrs } = self;
+        let Self { from, edges, attrs } = self;
         from.to_tokens(tokens);
-        for (op, to) in ops {
-            op.to_tokens(tokens);
+        for (dir, to) in edges {
+            dir.to_tokens(tokens);
             to.to_tokens(tokens)
         }
         attrs.to_tokens(tokens)
@@ -347,12 +356,12 @@ impl ToTokens for StmtEdge {
 }
 
 #[derive(Debug, PartialEq, Eq, ToTokens)]
-pub enum NodeIdOrSubgraph {
+pub enum EdgeTarget {
     Subgraph(StmtSubgraph),
     NodeId(NodeId),
 }
 
-impl Parse for NodeIdOrSubgraph {
+impl Parse for EdgeTarget {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek(kw::subgraph) || input.peek(token::Brace) {
             return Ok(Self::Subgraph(input.parse()?));
@@ -362,7 +371,7 @@ impl Parse for NodeIdOrSubgraph {
 }
 
 #[cfg(test)]
-impl NodeIdOrSubgraph {
+impl EdgeTarget {
     fn ident(s: &str) -> Self {
         Self::NodeId(NodeId {
             id: ID::ident(s),
@@ -372,7 +381,7 @@ impl NodeIdOrSubgraph {
 }
 
 #[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
-pub enum EdgeOp {
+pub enum EdgeDirectedness {
     #[peek(pun::DirectedEdge, name = "->")]
     Directed(pun::DirectedEdge),
     #[peek(Token![-], name = "--")]
@@ -391,7 +400,7 @@ fn custom_punct_for_directed_edge_does_not_work() {
 }
 
 #[cfg(test)]
-impl EdgeOp {
+impl EdgeDirectedness {
     /// ->
     fn directed() -> Self {
         Self::Directed(tok::directed_edge())
@@ -406,7 +415,7 @@ impl EdgeOp {
 pub struct StmtNode {
     pub node_id: NodeId,
     #[peek(token::Bracket)]
-    pub attributes: Option<Attributes>,
+    pub attrs: Option<Attrs>,
 }
 
 #[test]
@@ -417,7 +426,7 @@ fn parse_stmt_node() {
                 id: ID::ident("noddy"),
                 port: None
             },
-            attributes: None
+            attrs: None
         },
         syn::parse_quote!(noddy)
     );
@@ -427,10 +436,10 @@ fn parse_stmt_node() {
                 id: ID::ident("noddy"),
                 port: None
             },
-            attributes: Some(Attributes {
+            attrs: Some(Attrs {
                 lists: vec![AttrList {
                     bracket_token: tok::bracket(),
-                    kvs: vec![]
+                    assigns: vec![]
                 }]
             })
         },
@@ -442,10 +451,10 @@ fn parse_stmt_node() {
                 id: ID::ident("noddy"),
                 port: None
             },
-            attributes: Some(Attributes {
+            attrs: Some(Attrs {
                 lists: vec![AttrList {
                     bracket_token: tok::bracket(),
-                    kvs: vec![AttrKV::standalone(
+                    assigns: vec![AttrAssign::standalone(
                         ID::ident("label"),
                         ID::lit_str("make way for noddy")
                     )]
@@ -541,7 +550,7 @@ pub struct StmtSubgraph {
     #[brace]
     pub brace_token: token::Brace,
     #[inside(brace_token)]
-    pub statements: Statements,
+    pub statements: StmtList,
 }
 
 impl StmtSubgraph {
