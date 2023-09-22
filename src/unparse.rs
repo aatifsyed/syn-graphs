@@ -124,9 +124,19 @@ mod dot {
             match id {
                 ID::AnyIdent(ident) => self.ident(ident),
                 ID::AnyLit(lit) => self.lit(lit),
-                ID::Html(html) => match html.source() {
-                    Some(source) => self.word(source),
-                    None => self.word(format!("< {}", html.stream)),
+                ID::Html(
+                    html @ HtmlString {
+                        lt: _,
+                        stream,
+                        gt: _,
+                    },
+                ) => match html.source() {
+                    Some(source) => {
+                        self.word("<");
+                        self.word(source);
+                        self.word(">");
+                    }
+                    None => self.word(format!("< {} >", stream)),
                 },
                 ID::DotInt(DotInt { dot: _, int }) => {
                     self.word(".");

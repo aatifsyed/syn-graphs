@@ -240,6 +240,27 @@ impl ToTokens for AttrList {
     }
 }
 
+#[test]
+fn parse_attr_list_penultimate_html() {
+    assert_eq!(
+        AttrList {
+            bracket_token: tok::bracket(),
+            kvs: vec![
+                AttrKV::standalone(ID::ident("color"), ID::lit_str("#88000022")),
+                AttrKV::standalone(ID::ident("label"), ID::html(quote::quote!(<em>hello!</em>))),
+                AttrKV::standalone(ID::ident("shape"), ID::ident("plain")),
+            ],
+        },
+        syn::parse_quote!(
+            [
+                color="#88000022"
+                label=<<em>hello!</em>>
+                shape=plain
+            ]
+        )
+    );
+}
+
 #[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct AttrKV {
     pub left: ID,
@@ -251,11 +272,11 @@ pub struct AttrKV {
 
 #[cfg(test)]
 impl AttrKV {
-    fn ident_and_string(ident: &str, string: &str) -> Self {
+    fn standalone(left: ID, right: ID) -> Self {
         Self {
-            left: ID::ident(ident),
+            left,
             eq_token: tok::eq(),
-            right: ID::lit_str(string),
+            right,
             trailing: None,
         }
     }
@@ -424,7 +445,10 @@ fn parse_stmt_node() {
             attributes: Some(Attributes {
                 lists: vec![AttrList {
                     bracket_token: tok::bracket(),
-                    kvs: vec![AttrKV::ident_and_string("label", "make way for noddy")]
+                    kvs: vec![AttrKV::standalone(
+                        ID::ident("label"),
+                        ID::lit_str("make way for noddy")
+                    )]
                 }]
             })
         },
@@ -614,6 +638,13 @@ impl ID {
     fn ident(s: &str) -> Self {
         Self::AnyIdent(syn::Ident::new(s, proc_macro2::Span::call_site()))
     }
+    fn html(stream: TokenStream) -> Self {
+        Self::Html(HtmlString {
+            lt: tok::lt(),
+            stream,
+            gt: tok::gt(),
+        })
+    }
 }
 
 #[derive(Parse, ToTokens, Debug, PartialEq, Eq)]
@@ -626,14 +657,12 @@ pub struct DotInt {
 pub struct HtmlString {
     pub lt: Token![<],
     pub stream: TokenStream,
+    pub gt: Token![>],
 }
 
 impl HtmlString {
     pub fn source(&self) -> Option<String> {
-        self.lt
-            .span()
-            .join(self.stream.span())
-            .and_then(|it| it.source_text())
+        self.stream.span().source_text()
     }
 }
 
@@ -656,15 +685,25 @@ impl Parse for HtmlString {
             let mut rest = *cursor;
             while let Some((tt, next)) = rest.token_tree() {
                 match &tt {
-                    Punct(p) if p.as_char() == '>' => nesting -= 1,
+                    Punct(p) if p.as_char() == '>' => {
+                        nesting -= 1;
+                        if nesting == 0 {
+                            return Ok((
+                                Self {
+                                    lt,
+                                    stream,
+                                    gt: syn::parse2(TokenStream::from(tt))
+                                        .expect("just saw that this was a `>`"),
+                                },
+                                next,
+                            ));
+                        }
+                    }
                     Punct(p) if p.as_char() == '<' => nesting += 1,
                     _ => {}
                 };
                 rest = next;
                 stream.extend([tt]);
-            }
-            if nesting == 0 {
-                return Ok((Self { lt, stream }, syn::buffer::Cursor::empty()));
             }
             Err(cursor.error("unmatched `<` in html string"))
         })
@@ -677,14 +716,16 @@ fn parse_html_string() {
     assert_eq!(
         HtmlString {
             lt: tok::lt(),
-            stream: quote!(hello>)
+            stream: quote!(hello),
+            gt: tok::gt(),
         },
         syn::parse_quote!(<hello>)
     );
     assert_eq!(
         HtmlString {
             lt: tok::lt(),
-            stream: quote!(hello <div> I am in a div </div> >)
+            stream: quote!(hello <div> I am in a div </div>),
+            gt: tok::gt(),
         },
         syn::parse_quote!(<hello <div> I am in a div </div> >)
     );
@@ -701,6 +742,7 @@ mod tok {
         colon -> token::Colon,
         directed_edge -> pun::DirectedEdge,
         eq -> token::Eq,
+        gt -> token::Gt,
         lt -> token::Lt,
         undirected_edge -> super::UndirectedEdge
     );
