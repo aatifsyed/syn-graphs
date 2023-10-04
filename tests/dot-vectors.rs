@@ -1,13 +1,10 @@
-use std::{error::Error, ffi::OsStr, fmt::Display, str::FromStr as _};
+use std::{ffi::OsStr, fmt::Display, str::FromStr as _};
 
 use colored::Colorize as _;
-use either::Either;
 use include_dir::{include_dir, Dir};
-use miette::{Diagnostic, NamedSource, SourceOffset, SourceSpan};
 use pretty_assertions::Comparison;
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use syn_graphs::{dot::Graph, unparse};
-use thiserror::Error;
 
 const GRAPHVIZ_GALLERY: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/test-vectors/dot");
 const SKIP: &[&str] = &[
@@ -62,13 +59,13 @@ fn vectors() {
                     }
                     Err(e) => {
                         println!("{} (second parse)", "FAIL".red());
-                        println!("{}", e.pretty());
+                        println!("{}", render(&e));
                     }
                 }
             }
             Err(e) => {
                 println!("{} (first parse)", "FAIL".red());
-                println!("{}", e.pretty());
+                println!("{}", render(&e));
             }
         }
         fail += 1;
@@ -82,10 +79,7 @@ fn vectors() {
     }
 }
 
-fn parse(
-    source_name: impl Display,
-    source: &str,
-) -> Result<Graph, SpannedError<Either<proc_macro2::LexError, syn::Error>>> {
+fn parse(file_name: impl Display, source: &str) -> Result<Graph, syn_miette::Error> {
     let source = source
         .replace("\\N", "N")
         .replace("\\G", "G")
@@ -104,65 +98,21 @@ fn parse(
     match TokenStream::from_str(source.as_str()) {
         Ok(token_stream) => match syn::parse2(token_stream) {
             Ok(graph) => Ok(graph),
-            Err(syn_error) => Err(SpannedError::new(
-                syn_error.span(),
-                Either::Right(syn_error),
-                source_name,
-                source,
-            )),
+            Err(syn_error) => Err(syn_miette::Error::new_named(syn_error, source, file_name)),
         },
-        Err(lex_error) => Err(SpannedError::new(
-            lex_error.span(),
-            Either::Left(lex_error),
-            source_name,
+        Err(lex_error) => Err(syn_miette::Error::new_named(
+            syn::Error::from(lex_error),
             source,
+            file_name,
         )),
     }
 }
 
-#[derive(Diagnostic, Debug, Error)]
-#[error("{}", inner)]
-pub struct SpannedError<E: Error + 'static> {
-    #[source_code]
-    src: NamedSource,
-    #[source]
-    inner: E,
-    #[label]
-    span: SourceSpan,
-}
-impl<E: Error + 'static> SpannedError<E> {
-    pub fn new(span: Span, inner: E, source_name: impl Display, source_text: String) -> Self {
-        let start = span.start();
-        let end = span.end();
-        Self {
-            span: SourceSpan::new(
-                SourceOffset::from_location(&source_text, start.line, start.column),
-                SourceOffset::from_location(&source_text, end.line, end.column),
-            ),
-            src: NamedSource::new(source_name.to_string(), source_text),
-            inner,
-        }
-    }
-
-    pub fn pretty(&self) -> String {
-        let renderer = miette::GraphicalReportHandler::new();
-        let mut out = String::new();
-        match renderer.render_report(&mut out, self) {
-            Ok(()) => {
-                if out.lines().count() > 50 {
-                    out = out.lines().take(49).collect::<Vec<_>>().join("\n");
-                    out.push_str("\n<truncated>")
-                }
-                out
-            }
-            Err(render_error) => format!(
-                "{} at offset {} (could not render: {})",
-                self.inner,
-                self.span.offset(),
-                render_error
-            ),
-        }
-    }
+fn render(error: &syn_miette::Error) -> String {
+    let renderer = miette::GraphicalReportHandler::new();
+    let mut out = String::new();
+    renderer.render_report(&mut out, error).unwrap();
+    out
 }
 
 /// Remove semantically irrelevant information

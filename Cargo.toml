@@ -31,3 +31,4 @@ proc-macro2 = { version = "1.0.67", default-features = false, features = [
     "span-locations",
 ] }
 thiserror = "1.0.48"
+syn-miette = "0.1.0"
