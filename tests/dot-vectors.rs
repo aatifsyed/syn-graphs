@@ -12,9 +12,8 @@ const SKIP: &[&str] = &[
     "b545.gv",         // syntax error online too
     "b993.gv",         // uses `diGraph` instead of `digraph`
     "multi.gv",        // don't support multiple graphs in one document
-    "polypoly.gv.~1~", // BUG?(aatifsyed)
-    "polypoly.gv.~2~", // BUG?(aatifsyed)
-    "world.gv.~2~",    // BUG?(aatifsyed)
+    "polypoly.gv.~1~", // TODO(aatifsyed): support literals like `-.03`
+    "polypoly.gv.~2~", // TODO(aatifsyed): support literals like `-.03`
 ];
 
 #[test]
@@ -87,6 +86,7 @@ fn parse(file_name: impl Display, source: &str) -> Result<Graph, syn_miette::Err
         .replace("\\<", "<")
         .replace("\\>", ">")
         .replace("\\l", "l")
+        .replace("\\@", "@")
         .replace('«', "<<")
         .replace('»', ">>");
     let source = source // remove comments
