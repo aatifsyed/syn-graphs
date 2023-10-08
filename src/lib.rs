@@ -11,7 +11,6 @@ const INDENT: isize = 4;
 const MIN_SPACE: isize = 60;
 
 #[allow(unused)]
-#[path = "../extern/prettyplease-0.2.14/src"]
 mod prettyplease {
     pub(crate) mod algorithm;
     pub(crate) mod convenience;
