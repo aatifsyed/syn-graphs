@@ -34,7 +34,7 @@ pub mod pun {
     syn::custom_punctuation!(DirectedEdge, ->);
 }
 
-#[derive(Parse, Debug, PartialEq, Eq)]
+#[derive(Parse, Debug, PartialEq, Eq, Clone)]
 pub struct Graph {
     pub strict: Option<kw::strict>,
     pub directedness: GraphDirectedness,
@@ -80,7 +80,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StmtList {
     pub stmts: Vec<(Stmt, Option<Token![;]>)>,
 }
@@ -109,7 +109,7 @@ impl ToTokens for StmtList {
         }
     }
 }
-#[derive(Debug, PartialEq, Eq, ToTokens)]
+#[derive(Clone, Debug, PartialEq, Eq, ToTokens)]
 pub enum Stmt {
     Attr(StmtAttr),
     Assign(StmtAssign),
@@ -162,14 +162,14 @@ fn parse_stmt() {
         syn::parse_quote!("node0":f0 -> "node1":f0)
     )
 }
-#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct StmtAssign {
     pub left: ID,
     pub eq_token: Token![=],
     pub right: ID,
 }
 
-#[derive(Parse, ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, Parse, ToTokens, Debug, PartialEq, Eq)]
 pub struct StmtAttr {
     pub target: AttrTarget,
     pub attrs: Attrs,
@@ -186,7 +186,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Attrs {
     /// Non-empty
     pub lists: Vec<AttrList>,
@@ -211,7 +211,7 @@ impl ToTokens for Attrs {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AttrList {
     pub bracket_token: token::Bracket,
     pub assigns: Vec<AttrAssign>,
@@ -270,7 +270,7 @@ fn parse_attr_list_penultimate_html() {
     );
 }
 
-#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct AttrAssign {
     pub left: ID,
     pub eq_token: Token![=],
@@ -309,7 +309,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, Parse, Debug, PartialEq, Eq)]
 pub struct StmtEdge {
     pub from: EdgeTarget,
     /// Non-empty
@@ -355,7 +355,7 @@ impl ToTokens for StmtEdge {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, ToTokens)]
+#[derive(Clone, Debug, PartialEq, Eq, ToTokens)]
 pub enum EdgeTarget {
     Subgraph(StmtSubgraph),
     NodeId(NodeId),
@@ -380,7 +380,7 @@ impl EdgeTarget {
     }
 }
 
-#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
 pub enum EdgeDirectedness {
     #[peek(pun::DirectedEdge, name = "->")]
     Directed(pun::DirectedEdge),
@@ -388,7 +388,7 @@ pub enum EdgeDirectedness {
     Undirected(UndirectedEdge),
 }
 
-#[derive(ToTokens, Parse, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Default)]
 pub struct UndirectedEdge(Token![-], Token![-]);
 
 #[test]
@@ -411,7 +411,7 @@ impl EdgeDirectedness {
     }
 }
 
-#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct StmtNode {
     pub node_id: NodeId,
     #[peek(token::Bracket)]
@@ -465,7 +465,7 @@ fn parse_stmt_node() {
     );
 }
 
-#[derive(ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
 pub struct NodeId {
     pub id: ID,
     #[peek(token::Colon)]
@@ -503,7 +503,7 @@ fn parse_node_id() {
     );
 }
 
-#[derive(ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Debug, PartialEq, Eq)]
 pub enum Port {
     ID {
         colon: Token![:],
@@ -543,7 +543,7 @@ impl Parse for Port {
     }
 }
 
-#[derive(Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, Parse, Debug, PartialEq, Eq)]
 pub struct StmtSubgraph {
     #[call(Self::parse_prelude)]
     pub prelude: Option<(kw::subgraph, Option<ID>)>,
@@ -604,7 +604,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Debug, PartialEq, Eq)]
 pub enum ID {
     AnyIdent(syn::Ident),
     AnyLit(syn::Lit),
@@ -656,13 +656,13 @@ impl ID {
     }
 }
 
-#[derive(Parse, ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, Parse, ToTokens, Debug, PartialEq, Eq)]
 pub struct DotInt {
     pub dot: Token![.],
     pub int: syn::LitInt,
 }
 
-#[derive(ToTokens, Debug)]
+#[derive(Clone, ToTokens, Debug)]
 pub struct HtmlString {
     pub lt: Token![<],
     pub stream: TokenStream,

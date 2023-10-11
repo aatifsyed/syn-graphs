@@ -36,7 +36,8 @@ macro_rules! enum_of_kws {
             derive_more::Display,
             Debug,
             PartialEq,
-            Eq
+            Eq,
+            Clone
         )]
         pub enum $this {
             $(
