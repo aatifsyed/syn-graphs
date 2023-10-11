@@ -1,3 +1,4 @@
+pub mod build;
 pub mod dot;
 pub mod mermaid;
 pub mod unparse;
