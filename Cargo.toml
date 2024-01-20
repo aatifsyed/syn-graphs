@@ -26,7 +26,7 @@ derive-quote-to-tokens = "0.1.0"
 derive_more = { version = "0.99.17", default-features = false, features = [
     "display",
 ] }
-petgraph = { version = "0.6.4", default-features = false }
+petgraph = "0.6.4"
 
 [dev-dependencies]
 colored = "2.0.4"
