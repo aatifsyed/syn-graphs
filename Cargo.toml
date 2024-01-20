@@ -27,7 +27,6 @@ derive_more = { version = "0.99.17", default-features = false, features = [
     "display",
 ] }
 petgraph = { version = "0.6.4", default-features = false }
-is_type = "0.2.1"
 
 [dev-dependencies]
 colored = "2.0.4"

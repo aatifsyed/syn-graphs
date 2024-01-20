@@ -6,17 +6,12 @@ use std::{
     },
 };
 
-use is_type::Is;
-use petgraph::{
-    data::Build,
-    visit::{Data, GraphBase, GraphProp},
+use petgraph::{graphmap::GraphMap, EdgeType};
+
+use crate::dot::{
+    self, Attrs, EdgeDirectedness, EdgeTarget, Graph, GraphDirectedness, NodeId, Stmt, StmtEdge,
+    StmtList, StmtNode, ID,
 };
-
-use crate::dot;
-
-pub trait BuildableGraph: GraphBase + GraphProp + Data + Build + Default {}
-
-impl<G> BuildableGraph for G where G: GraphBase + GraphProp + Data + Build + Default {}
 
 macro_rules! bail {
     ($tokens:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {
@@ -24,144 +19,137 @@ macro_rules! bail {
     };
 }
 
-pub fn dot<G: BuildableGraph>(graph: &dot::Graph) -> syn::Result<G>
-where
-    G::NodeWeight: Is<Type = String>,
-    G::EdgeWeight: Default,
-{
-    use dot::{Graph, GraphDirectedness, NodeId, Stmt, StmtList, StmtNode, ID};
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PortlessNode<'a> {
+    pub id: &'a ID,
+    pub attrs: Option<&'a Attrs>,
+}
+
+pub fn dot<Di: EdgeType>(
+    dot_graph: &dot::Graph,
+) -> syn::Result<GraphMap<PortlessNode<'_>, Option<&Attrs>, Di>> {
     let Graph {
-        strict,
+        strict: _,
         directedness,
         id: _,
         brace_token: _,
         stmt_list: StmtList { stmts },
-    } = graph;
-
-    match (parallel_edges_allowed::<G>(), strict) {
-        (true, Some(_)) | (false, None) => {} // matches
-        (true, None) => {
-            bail!(
-                directedness,
-                "graph is not `strict`, but graph implementation {} is",
-                type_name::<G>()
-            )
-        }
-        (false, Some(strict)) => {
-            bail!(
-                strict,
-                "graph is `strict`, but graph implementation {} is not",
-                type_name::<G>()
-            )
-        }
-    }
-
-    let dot_is_directed = match directedness {
-        GraphDirectedness::Graph(_) => false,
-        GraphDirectedness::Digraph(_) => true,
-    };
-
-    if dot_is_directed != G::default().is_directed() {
-        bail!(
+    } = dot_graph;
+    match (directedness, Di::is_directed()) {
+        (GraphDirectedness::Digraph(_), true) | (GraphDirectedness::Graph(_), false) => {}
+        (GraphDirectedness::Graph(_), true) | (GraphDirectedness::Digraph(_), false) => bail!(
             directedness,
-            "graph direction in `dot` does not match directionality of {}",
-            type_name::<G>()
-        );
+            "graph direction in dot does not match compile-time direction {}",
+            type_name::<Di>()
+        ),
     }
 
-    let mut graph = G::default();
-    let mut id2ix = HashMap::new();
+    let mut id2portless_node = HashMap::new();
+
     for (stmt, _semi) in stmts {
-        match stmt {
-            Stmt::Attr(it) => bail!(it, "unsupported statement"),
-            Stmt::Assign(it) => bail!(it, "unsupported statement"),
-            Stmt::Subgraph(it) => bail!(it, "unsupported statement"),
-            Stmt::Node(StmtNode {
-                node_id: NodeId { id, port },
-                attrs,
-            }) => {
-                if let Some(port) = port {
-                    bail!(port, "ports are not supported")
-                }
-                if let Some(attrs) = attrs {
-                    bail!(attrs, "attrs are not supported")
-                }
-                let id = match id {
-                    ID::AnyIdent(it) => it.to_string(),
-                    ID::AnyLit(lit) => match lit {
-                        syn::Lit::Str(it) => it.value(),
-                        syn::Lit::Char(it) => it.value().to_string(),
-                        other => bail!(other, "unsupported id"),
-                    },
-                    ID::Html(it) => match it.source() {
-                        Some(it) => it,
-                        None => bail!(it, "unsupported id"),
-                    },
-                    ID::DotInt(it) => bail!(it, "unsupported id"),
-                };
-                match id2ix.entry(id.clone()) {
-                    Occupied(_) => bail!(id, "duplicate node declaration"),
-                    Vacant(it) => {
-                        it.insert(graph.add_node(G::NodeWeight::from_val(id)));
-                    }
+        if let Stmt::Node(StmtNode {
+            node_id: NodeId { id, port },
+            attrs,
+        }) = stmt
+        {
+            if port.is_some() {
+                bail!(port, "nodes with ports are not supported")
+            };
+            match id2portless_node.entry(id) {
+                Occupied(_) => bail!(id, "concatenation of node attributes is not supported"),
+                Vacant(it) => {
+                    it.insert(PortlessNode {
+                        id,
+                        attrs: attrs.as_ref(),
+                    });
                 }
             }
-            Stmt::Edge(_) => todo!(),
         }
     }
-    todo!()
-}
 
-fn parallel_edges_allowed<G: BuildableGraph>() -> bool
-where
-    G::NodeWeight: Is<Type = String>,
-    G::EdgeWeight: Default,
-{
-    let mut graph = G::default();
-    let from = graph.add_node(G::NodeWeight::from_val(String::from("from")));
-    let to = graph.add_node(G::NodeWeight::from_val(String::from("to")));
-    let first_edge_id = graph.add_edge(from, to, G::EdgeWeight::default()).unwrap();
-    let maybe_parallel_edge_id = graph.add_edge(from, to, G::EdgeWeight::default());
-    match maybe_parallel_edge_id {
-        Some(id) if id == first_edge_id => panic!(
-            "`impl petgraph::data::Build for {}` is wrong",
-            type_name::<G>()
-        ),
-        Some(_) => true,
-        None => false,
+    let mut petgraph = GraphMap::<_, _, Di>::default();
+
+    for (stmt, _semi) in stmts {
+        match stmt {
+            Stmt::Attr(_) | Stmt::Assign(_) | Stmt::Subgraph(_) => {
+                bail!(stmt, "unsupported statement")
+            }
+            Stmt::Node(_) => {}
+            Stmt::Edge(StmtEdge { from, edges, attrs }) => {
+                let mut target_from = from;
+                for (directedness, target_to) in edges {
+                    match (directedness, Di::is_directed()) {
+                        (EdgeDirectedness::Directed(_), true)
+                        | (EdgeDirectedness::Undirected(_), false) => {}
+                        (EdgeDirectedness::Directed(_), false)
+                        | (EdgeDirectedness::Undirected(_), true) => {
+                            bail!(directedness, "inconsistent edge direction")
+                        }
+                    }
+
+                    let portless_node_from = match target_from {
+                        EdgeTarget::Subgraph(it) => bail!(it, "unsupported edge target"),
+                        EdgeTarget::NodeId(NodeId { id, port }) => match port {
+                            Some(port) => bail!(port, "nodes with ports are not supported"),
+                            None => id2portless_node
+                                .get(id)
+                                .copied()
+                                .unwrap_or(PortlessNode { id, attrs: None }),
+                        },
+                    };
+                    let portless_node_to = match target_to {
+                        EdgeTarget::Subgraph(it) => bail!(it, "unsupported edge target"),
+                        EdgeTarget::NodeId(NodeId { id, port }) => match port {
+                            Some(port) => bail!(port, "nodes with ports are not supported"),
+                            None => id2portless_node
+                                .get(id)
+                                .copied()
+                                .unwrap_or(PortlessNode { id, attrs: None }),
+                        },
+                    };
+
+                    let clobbered =
+                        petgraph.add_edge(portless_node_from, portless_node_to, attrs.as_ref());
+                    if clobbered.is_some() {
+                        bail!(
+                            stmt,
+                            "duplicate edges are not supported (graphs are implicitly `strict`)"
+                        )
+                    }
+
+                    target_from = target_to;
+                }
+            }
+        }
     }
+
+    Ok(petgraph)
 }
 
 #[cfg(test)]
 mod tests {
-    use petgraph::{
-        graph::{DiGraph, UnGraph},
-        matrix_graph::{DiMatrix, UnMatrix},
-        stable_graph::{StableDiGraph, StableUnGraph},
-    };
+    use petgraph::{Directed, Undirected};
+    use syn::parse_quote;
 
     use super::*;
-
-    // Basically check the documentation of petgraph
     #[test]
-    fn test_parallel_edges_allowed() {
-        assert!(parallel_edges_allowed::<
-            DiGraph<String, HashMap<String, String>>,
-        >());
-        assert!(parallel_edges_allowed::<
-            UnGraph<String, HashMap<String, String>>,
-        >());
-        assert!(parallel_edges_allowed::<
-            StableDiGraph<String, HashMap<String, String>>,
-        >());
-        assert!(parallel_edges_allowed::<
-            StableUnGraph<String, HashMap<String, String>>,
-        >());
-        assert!(!parallel_edges_allowed::<
-            DiMatrix<String, HashMap<String, String>>,
-        >());
-        assert!(!parallel_edges_allowed::<
-            UnMatrix<String, HashMap<String, String>>,
-        >());
+    fn test_dot() {
+        let dot_graph: dot::Graph = parse_quote! {
+            graph {
+                a -- b -- c
+            }
+        };
+        let petgraph = dot::<Undirected>(&dot_graph).unwrap();
+        assert_eq!(petgraph.node_count(), 3);
+        assert_eq!(petgraph.edge_count(), 2);
+
+        let dot_graph: dot::Graph = parse_quote! {
+            digraph {
+                a -> b -> c
+            }
+        };
+        let petgraph = dot::<Directed>(&dot_graph).unwrap();
+        assert_eq!(petgraph.node_count(), 3);
+        assert_eq!(petgraph.edge_count(), 2);
     }
 }

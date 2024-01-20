@@ -23,6 +23,7 @@ mod prettyplease {
 
 macro_rules! enum_of_kws {
     (
+        $(#[$meta:meta])*
         pub enum $this:ident {
             $(
                 #[name = $lit:literal]
@@ -30,6 +31,7 @@ macro_rules! enum_of_kws {
             ),* $(,)?
         }
     ) => {
+        $(#[$meta])*
         #[derive(
             derive_syn_parse::Parse,
             derive_quote_to_tokens::ToTokens,
@@ -37,7 +39,8 @@ macro_rules! enum_of_kws {
             Debug,
             PartialEq,
             Eq,
-            Clone
+            Clone,
+            Hash,
         )]
         pub enum $this {
             $(

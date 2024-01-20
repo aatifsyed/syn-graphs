@@ -5,6 +5,10 @@ use derive_syn_parse::Parse;
 use pretty_assertions::assert_eq;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use std::{
+    cmp::{self, Ord, Ordering, PartialOrd},
+    hash::{Hash, Hasher},
+};
 use syn::{
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
@@ -13,28 +17,47 @@ use syn::{
 };
 
 pub mod kw {
-    syn::custom_keyword!(strict);
-    syn::custom_keyword!(graph);
-    syn::custom_keyword!(digraph);
-    syn::custom_keyword!(node);
-    syn::custom_keyword!(edge);
-    syn::custom_keyword!(subgraph);
-    syn::custom_keyword!(n);
-    syn::custom_keyword!(ne);
-    syn::custom_keyword!(e);
-    syn::custom_keyword!(se);
-    syn::custom_keyword!(s);
-    syn::custom_keyword!(sw);
-    syn::custom_keyword!(w);
-    syn::custom_keyword!(nw);
-    syn::custom_keyword!(c);
+    macro_rules! custom_keywords {
+        ($($ident:ident),* $(,)?) => {
+            $(
+                ::syn::custom_keyword!($ident);
+                impl ::std::cmp::PartialOrd for $ident {
+                    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+                        Some(self.cmp(other))
+                    }
+                }
+                impl ::std::cmp::Ord for $ident {
+                    fn cmp(&self, _: &Self) -> ::std::cmp::Ordering {
+                        ::std::cmp::Ordering::Equal
+                    }
+                }
+            )*
+        };
+    }
+
+    custom_keywords! {
+        strict, graph, digraph, node, edge, subgraph, n, ne, e, se, s, sw, w, nw, c
+    }
 }
 
 pub mod pun {
+    use std::cmp::{Ord, Ordering, PartialOrd};
+
     syn::custom_punctuation!(DirectedEdge, ->);
+
+    impl Ord for DirectedEdge {
+        fn cmp(&self, _: &Self) -> Ordering {
+            Ordering::Equal
+        }
+    }
+    impl PartialOrd for DirectedEdge {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
 }
 
-#[derive(Parse, Debug, PartialEq, Eq, Clone)]
+#[derive(Parse, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Graph {
     pub strict: Option<kw::strict>,
     pub directedness: GraphDirectedness,
@@ -44,6 +67,30 @@ pub struct Graph {
     pub brace_token: token::Brace,
     #[inside(brace_token)]
     pub stmt_list: StmtList,
+}
+
+impl Ord for Graph {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let Self {
+            strict,
+            directedness,
+            id,
+            brace_token: _,
+            stmt_list,
+        } = self;
+        Ordering::Equal
+            .then(strict.cmp(&other.strict))
+            .then(directedness.cmp(&other.directedness))
+            .then(id.cmp(&other.id))
+            .then(Ordering::Equal /* brace_token */)
+            .then(stmt_list.cmp(&other.stmt_list))
+    }
+}
+
+impl PartialOrd for Graph {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Graph {
@@ -72,6 +119,7 @@ impl ToTokens for Graph {
 }
 
 enum_of_kws!(
+    #[derive(PartialOrd, Ord)]
     pub enum GraphDirectedness {
         #[name = "graph"]
         Graph(kw::graph),
@@ -80,9 +128,40 @@ enum_of_kws!(
     }
 );
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct StmtList {
     pub stmts: Vec<(Stmt, Option<Token![;]>)>,
+}
+
+impl Ord for StmtList {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self { stmts } = self;
+
+        // copied from stdlib
+        let l = cmp::min(stmts.len(), other.stmts.len());
+
+        // Slice to the loop iteration range to enable bound check
+        // elimination in the compiler
+        let lhs = &stmts[..l];
+        let rhs = &other.stmts[..l];
+
+        for i in 0..l {
+            let (left_stmt, left_semi) = &lhs[i];
+            let (right_stmt, right_semi) = &rhs[i];
+            match (left_stmt, left_semi.map(|_| ())).cmp(&(right_stmt, right_semi.map(|_| ()))) {
+                Ordering::Equal => (),
+                non_eq => return non_eq,
+            }
+        }
+
+        stmts.len().cmp(&other.stmts.len())
+    }
+}
+
+impl PartialOrd for StmtList {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Parse for StmtList {
@@ -109,7 +188,7 @@ impl ToTokens for StmtList {
         }
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, ToTokens)]
+#[derive(Clone, Debug, PartialEq, Eq, ToTokens, Hash, PartialOrd, Ord)]
 pub enum Stmt {
     Attr(StmtAttr),
     Assign(StmtAssign),
@@ -162,20 +241,41 @@ fn parse_stmt() {
         syn::parse_quote!("node0":f0 -> "node1":f0)
     )
 }
-#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Hash)]
 pub struct StmtAssign {
     pub left: ID,
     pub eq_token: Token![=],
     pub right: ID,
 }
 
-#[derive(Clone, Parse, ToTokens, Debug, PartialEq, Eq)]
+impl Ord for StmtAssign {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self {
+            left,
+            eq_token: _,
+            right,
+        } = self;
+        Ordering::Equal
+            .then(left.cmp(&other.left))
+            .then(Ordering::Equal /* eq_token */)
+            .then(right.cmp(&other.right))
+    }
+}
+
+impl PartialOrd for StmtAssign {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Parse, ToTokens, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StmtAttr {
     pub target: AttrTarget,
     pub attrs: Attrs,
 }
 
 enum_of_kws!(
+    #[derive(PartialOrd, Ord)]
     pub enum AttrTarget {
         #[name = "graph"]
         Graph(kw::graph),
@@ -186,7 +286,7 @@ enum_of_kws!(
     }
 );
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Attrs {
     /// Non-empty
     pub lists: Vec<AttrList>,
@@ -211,10 +311,26 @@ impl ToTokens for Attrs {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AttrList {
     pub bracket_token: token::Bracket,
     pub assigns: Vec<AttrAssign>,
+}
+
+impl Ord for AttrList {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self {
+            bracket_token: _,
+            assigns,
+        } = self;
+        assigns.cmp(&other.assigns)
+    }
+}
+
+impl PartialOrd for AttrList {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Parse for AttrList {
@@ -270,13 +386,34 @@ fn parse_attr_list_penultimate_html() {
     );
 }
 
-#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Hash)]
 pub struct AttrAssign {
     pub left: ID,
     pub eq_token: Token![=],
     pub right: ID,
     #[call(Self::parse_sep)]
     pub trailing: Option<AttrSep>,
+}
+
+impl Ord for AttrAssign {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self {
+            left,
+            eq_token: _,
+            right,
+            trailing,
+        } = self;
+        Ordering::Equal
+            .then(left.cmp(&other.left))
+            .then(right.cmp(&other.right))
+            .then(trailing.cmp(&other.trailing))
+    }
+}
+
+impl PartialOrd for AttrAssign {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[cfg(test)]
@@ -309,7 +446,25 @@ enum_of_kws!(
     }
 );
 
-#[derive(Clone, Parse, Debug, PartialEq, Eq)]
+impl Ord for AttrSep {
+    fn cmp(&self, other: &Self) -> Ordering {
+        fn discriminant(attr_sep: &AttrSep) -> u8 {
+            match attr_sep {
+                AttrSep::Comma(token::Comma { .. }) => 0,
+                AttrSep::Semi(token::Semi { .. }) => 1,
+            }
+        }
+        discriminant(self).cmp(&discriminant(other))
+    }
+}
+
+impl PartialOrd for AttrSep {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Parse, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StmtEdge {
     pub from: EdgeTarget,
     /// Non-empty
@@ -355,7 +510,7 @@ impl ToTokens for StmtEdge {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, ToTokens)]
+#[derive(Clone, Debug, PartialEq, Eq, ToTokens, Hash, PartialOrd, Ord)]
 pub enum EdgeTarget {
     Subgraph(StmtSubgraph),
     NodeId(NodeId),
@@ -380,7 +535,7 @@ impl EdgeTarget {
     }
 }
 
-#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EdgeDirectedness {
     #[peek(pun::DirectedEdge, name = "->")]
     Directed(pun::DirectedEdge),
@@ -388,8 +543,20 @@ pub enum EdgeDirectedness {
     Undirected(UndirectedEdge),
 }
 
-#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Default, Hash)]
 pub struct UndirectedEdge(Token![-], Token![-]);
+
+impl Ord for UndirectedEdge {
+    fn cmp(&self, _: &Self) -> Ordering {
+        Ordering::Equal
+    }
+}
+
+impl PartialOrd for UndirectedEdge {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 #[test]
 #[should_panic = "expected `--`"]
@@ -411,7 +578,7 @@ impl EdgeDirectedness {
     }
 }
 
-#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StmtNode {
     pub node_id: NodeId,
     #[peek(token::Bracket)]
@@ -465,7 +632,7 @@ fn parse_stmt_node() {
     );
 }
 
-#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Parse, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId {
     pub id: ID,
     #[peek(token::Colon)]
@@ -503,7 +670,7 @@ fn parse_node_id() {
     );
 }
 
-#[derive(Clone, ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Debug, PartialEq, Eq, Hash)]
 pub enum Port {
     ID {
         colon: Token![:],
@@ -519,6 +686,30 @@ pub enum Port {
         colon2: Token![:],
         compass: CompassPoint,
     },
+}
+
+impl Ord for Port {
+    fn cmp(&self, other: &Self) -> Ordering {
+        fn port2options(port: &Port) -> (Option<&ID>, Option<&CompassPoint>) {
+            match port {
+                Port::ID { colon: _, id } => (Some(id), None),
+                Port::Compass { colon: _, compass } => (None, Some(compass)),
+                Port::IDAndCompass {
+                    colon1: _,
+                    id,
+                    colon2: _,
+                    compass,
+                } => (Some(id), Some(compass)),
+            }
+        }
+        port2options(self).cmp(&port2options(other))
+    }
+}
+
+impl PartialOrd for Port {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Parse for Port {
@@ -543,7 +734,7 @@ impl Parse for Port {
     }
 }
 
-#[derive(Clone, Parse, Debug, PartialEq, Eq)]
+#[derive(Clone, Parse, Debug, PartialEq, Eq, Hash)]
 pub struct StmtSubgraph {
     #[call(Self::parse_prelude)]
     pub prelude: Option<(kw::subgraph, Option<ID>)>,
@@ -551,6 +742,26 @@ pub struct StmtSubgraph {
     pub brace_token: token::Brace,
     #[inside(brace_token)]
     pub statements: StmtList,
+}
+
+impl Ord for StmtSubgraph {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self {
+            prelude,
+            brace_token: _,
+            statements,
+        } = self;
+        Ordering::Equal
+            .then(prelude.cmp(&other.prelude))
+            .then(Ordering::Equal /* brace_token */)
+            .then(statements.cmp(&other.statements))
+    }
+}
+
+impl PartialOrd for StmtSubgraph {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl StmtSubgraph {
@@ -582,6 +793,7 @@ impl ToTokens for StmtSubgraph {
 }
 
 enum_of_kws!(
+    #[derive(PartialOrd, Ord)]
     pub enum CompassPoint {
         #[name = "n"]
         N(kw::n),
@@ -604,12 +816,39 @@ enum_of_kws!(
     }
 );
 
-#[derive(Clone, ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, ToTokens, Debug, PartialEq, Eq, Hash)]
 pub enum ID {
     AnyIdent(syn::Ident),
     AnyLit(syn::Lit),
     Html(HtmlString),
     DotInt(DotInt),
+}
+
+impl Ord for ID {
+    fn cmp(&self, other: &Self) -> Ordering {
+        fn id2options(
+            id: &ID,
+        ) -> (
+            Option<&syn::Ident>,
+            Option<String>,
+            Option<&HtmlString>,
+            Option<&DotInt>,
+        ) {
+            match id {
+                ID::AnyIdent(it) => (Some(it), None, None, None),
+                ID::AnyLit(it) => (None, Some(it.to_token_stream().to_string()), None, None),
+                ID::Html(it) => (None, None, Some(it), None),
+                ID::DotInt(it) => (None, None, None, Some(it)),
+            }
+        }
+        id2options(self).cmp(&id2options(other))
+    }
+}
+
+impl PartialOrd for ID {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Parse for ID {
@@ -656,10 +895,25 @@ impl ID {
     }
 }
 
-#[derive(Clone, Parse, ToTokens, Debug, PartialEq, Eq)]
+#[derive(Clone, Parse, ToTokens, Debug, PartialEq, Eq, Hash)]
 pub struct DotInt {
     pub dot: Token![.],
     pub int: syn::LitInt,
+}
+
+impl Ord for DotInt {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self { dot: _, int } = self;
+        int.to_token_stream()
+            .to_string()
+            .cmp(&other.int.to_token_stream().to_string())
+    }
+}
+
+impl PartialOrd for DotInt {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Clone, ToTokens, Debug)]
@@ -667,6 +921,32 @@ pub struct HtmlString {
     pub lt: Token![<],
     pub stream: TokenStream,
     pub gt: Token![>],
+}
+
+impl Ord for HtmlString {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self {
+            lt: _,
+            stream,
+            gt: _,
+        } = self;
+        stream.to_string().cmp(&other.stream.to_string())
+    }
+}
+
+impl PartialOrd for HtmlString {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Hash for HtmlString {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let Self { lt, stream, gt } = self;
+        lt.hash(state);
+        stream.to_string().hash(state);
+        gt.hash(state);
+    }
 }
 
 impl HtmlString {
