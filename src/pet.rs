@@ -25,7 +25,7 @@ pub struct PortlessNode<'a> {
     pub attrs: Option<&'a Attrs>,
 }
 
-pub fn dot<Di: EdgeType>(
+pub fn from_dot<Di: EdgeType>(
     dot_graph: &dot::Graph,
 ) -> syn::Result<GraphMap<PortlessNode<'_>, Option<&Attrs>, Di>> {
     let Graph {
@@ -139,7 +139,7 @@ mod tests {
                 a -- b -- c
             }
         };
-        let petgraph = dot::<Undirected>(&dot_graph).unwrap();
+        let petgraph = from_dot::<Undirected>(&dot_graph).unwrap();
         assert_eq!(petgraph.node_count(), 3);
         assert_eq!(petgraph.edge_count(), 2);
 
@@ -148,7 +148,7 @@ mod tests {
                 a -> b -> c
             }
         };
-        let petgraph = dot::<Directed>(&dot_graph).unwrap();
+        let petgraph = from_dot::<Directed>(&dot_graph).unwrap();
         assert_eq!(petgraph.node_count(), 3);
         assert_eq!(petgraph.edge_count(), 2);
     }

@@ -1,6 +1,6 @@
-pub mod build;
 pub mod dot;
 pub mod mermaid;
+pub mod pet;
 pub mod unparse;
 
 // transplant the unparsing logic from prettyplease
