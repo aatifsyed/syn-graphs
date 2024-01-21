@@ -160,7 +160,7 @@ where
                     if edge_id.is_none() {
                         bail!(
                             stmt,
-                            "could not insert parallel edge: operation not supported by {}",
+                            "could not insert edge: operation not supported by {}",
                             type_name::<G>()
                         )
                     }
@@ -176,10 +176,152 @@ where
 
 #[cfg(test)]
 mod tests {
-    use petgraph::{graphmap::GraphMap, Directed, Undirected};
+    use std::fmt::Debug;
+
+    use petgraph::graph::{DiGraph, UnGraph};
+    use petgraph::graphmap::{DiGraphMap, UnGraphMap};
+    use petgraph::matrix_graph::{DiMatrix, UnMatrix};
+    use petgraph::stable_graph::{StableDiGraph, StableUnGraph};
+
+    use petgraph::visit::EdgeCount;
     use syn::parse_quote;
 
     use super::*;
+
+    trait Supports {
+        fn parallel_edges() -> bool;
+        fn self_loops() -> bool;
+    }
+
+    macro_rules! supports {
+        ($($ident:ident: $parallel:literal, $self_loops:literal);* $(;)?) => {
+            $(
+                impl<N, E> Supports for $ident<N, E> {
+                    fn parallel_edges() -> bool { $parallel }
+                    fn self_loops() -> bool { $self_loops }
+                }
+            )*
+        };
+    }
+
+    supports! {
+        DiGraph: true, true; // tested
+        UnGraph: true, true; // tested
+
+        StableDiGraph: true, true; // tested
+        StableUnGraph: true, true; // tested
+
+        DiGraphMap: false, true; // documented
+        UnGraphMap: false, true; // documented
+
+        DiMatrix: false, true; // tested
+        UnMatrix: false, true; // tested
+    }
+
+    // no point testing `List` since can't add node weights
+    // // documented
+    // impl<E> Supports for List<E> {
+    //     fn parallel_edges() -> bool { true }
+    //     fn self_loops() -> bool { true }
+    // }
+
+    #[test]
+    fn test_supports() {
+        fn test<G, T: Debug + PartialEq>()
+        where
+            G: Supports,
+            G: Default
+                + Build<NodeWeight = &'static str, EdgeWeight = (), EdgeId = T>
+                + GraphProp
+                + GetAdjacencyMatrix
+                + EdgeCount,
+        {
+            print!("testing {}...", type_name::<G>());
+
+            /////////////////
+            // Parallel edges
+            /////////////////
+            let mut graph = G::default();
+            let from = graph.add_node("from");
+            let to = graph.add_node("to");
+            assert_eq!(graph.node_count(), 2);
+
+            let edge = graph.add_edge(from, to, ());
+            assert!(edge.is_some());
+            assert_eq!(graph.edge_count(), 1);
+            match G::parallel_edges() {
+                true => {
+                    let edge2 = graph.add_edge(from, to, ());
+                    assert!(edge2.is_some());
+                    assert_ne!(edge, edge2);
+                    assert_eq!(graph.edge_count(), 2);
+                }
+                false => {
+                    let edge2 = graph.add_edge(from, to, ());
+                    assert!(edge2.is_none());
+                    assert_eq!(graph.edge_count(), 1);
+                }
+            }
+
+            /////////////
+            // Self-loops
+            /////////////
+            let mut graph = G::default();
+            let node = graph.add_node("node");
+            assert_eq!(graph.node_count(), 1);
+
+            match G::self_loops() {
+                true => {
+                    let edge = graph.add_edge(node, node, ());
+                    assert!(edge.is_some());
+                    assert_eq!(graph.edge_count(), 1);
+                }
+                false => {
+                    let edge = graph.add_edge(node, node, ());
+                    assert!(edge.is_none());
+                    assert_eq!(graph.edge_count(), 0);
+                }
+            }
+
+            ////////////////////////////////////////////////
+            // Adjacency tests should be direction-sensitive
+            ////////////////////////////////////////////////
+            let mut graph = G::default();
+            let from = graph.add_node("from");
+            let to = graph.add_node("to");
+            assert_eq!(graph.node_count(), 2);
+
+            let edge = graph.add_edge(from, to, ());
+            assert!(edge.is_some());
+            assert_eq!(graph.edge_count(), 1);
+            match graph.is_directed() {
+                true => {
+                    assert!(graph.is_adjacent(&graph.adjacency_matrix(), from, to));
+                    assert!(!graph.is_adjacent(&graph.adjacency_matrix(), to, from));
+                    let edge2 = graph.add_edge(to, from, ());
+                    assert!(edge2.is_some());
+                    assert_ne!(edge, edge2);
+                    assert_eq!(graph.edge_count(), 2);
+                    assert!(graph.is_adjacent(&graph.adjacency_matrix(), to, from));
+                }
+                false => {
+                    assert!(graph.is_adjacent(&graph.adjacency_matrix(), from, to));
+                    assert!(graph.is_adjacent(&graph.adjacency_matrix(), to, from));
+                }
+            }
+
+            println!("ok.");
+        }
+
+        test::<DiGraph<_, _>, _>();
+        test::<UnGraph<_, _>, _>();
+        test::<StableDiGraph<_, _>, _>();
+        test::<StableUnGraph<_, _>, _>();
+        test::<DiGraphMap<_, _>, _>();
+        test::<UnGraphMap<_, _>, _>();
+        test::<DiMatrix<_, _>, _>();
+        test::<UnMatrix<_, _>, _>();
+    }
 
     #[test]
     fn test_dot() {
@@ -188,7 +330,7 @@ mod tests {
                 a -- b -- c
             }
         };
-        let petgraph = from_dot::<GraphMap<_, _, Undirected>>(&dot_graph).unwrap();
+        let petgraph = from_dot::<UnGraph<_, _>>(&dot_graph).unwrap();
         assert_eq!(petgraph.node_count(), 3);
         assert_eq!(petgraph.edge_count(), 2);
 
@@ -197,7 +339,7 @@ mod tests {
                 a -> b -> c;
             }
         };
-        let petgraph = from_dot::<GraphMap<_, _, Directed>>(&dot_graph).unwrap();
+        let petgraph = from_dot::<DiGraph<_, _>>(&dot_graph).unwrap();
         assert_eq!(petgraph.node_count(), 3);
         assert_eq!(petgraph.edge_count(), 2);
     }
