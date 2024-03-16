@@ -40,4 +40,3 @@ proc-macro2 = { version = "1.0.67", default-features = false, features = [
 thiserror = "1.0.48"
 syn-miette = "0.1.0"
 petgraph = "0.6.4"
-itertools = "0.12.0"
