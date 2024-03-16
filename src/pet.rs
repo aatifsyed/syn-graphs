@@ -182,8 +182,14 @@ mod tests {
     use petgraph::graphmap::{DiGraphMap, UnGraphMap};
     use petgraph::matrix_graph::{DiMatrix, UnMatrix};
     use petgraph::stable_graph::{StableDiGraph, StableUnGraph};
+    use petgraph::Direction;
 
-    use petgraph::visit::EdgeCount;
+    use itertools::Itertools as _;
+    use petgraph::visit::{
+        EdgeCount, GraphBase, IntoNeighbors, IntoNeighborsDirected, IntoNodeIdentifiers,
+        NodeIndexable, Visitable,
+    };
+    use quote::ToTokens as _;
     use syn::parse_quote;
 
     use super::*;
@@ -342,5 +348,108 @@ mod tests {
         let petgraph = from_dot::<DiGraph<_, _>>(&dot_graph).unwrap();
         assert_eq!(petgraph.node_count(), 3);
         assert_eq!(petgraph.edge_count(), 2);
+    }
+
+    struct TreeNode<'a, I> {
+        parent: Option<&'a Self>,
+        this: I,
+        children: Vec<Self>,
+    }
+
+    fn graph2tree<G>(graph: &G)
+    where
+        G: GraphBase
+            + IntoNodeIdentifiers
+            + IntoNeighbors
+            + NodeIndexable
+            + IntoNeighborsDirected
+            + Visitable,
+    {
+        if petgraph::algo::is_cyclic_directed(graph) {
+            panic!("graph is cyclic")
+        }
+        for component in petgraph::algo::tarjan_scc(graph) {
+            let mut root = None;
+            for id in &component {
+                match graph.neighbors_directed(*id, Direction::Incoming).count() {
+                    0 => match root {
+                        Some(_) => panic!("tree must have exactly one root"),
+                        None => root = Some(id),
+                    },
+                    1 => {}
+                    _ => panic!("graph is not a tree"),
+                }
+            }
+            let Some(root) = root else {
+                panic!("tree has no root")
+            };
+            let mut root = TreeNode {
+                parent: None,
+                this: *root,
+                children: vec![],
+            };
+            fn fill_node<'a, I, G>(parent: &mut TreeNode<'a, I>, graph: G)
+            where
+                G: IntoNeighborsDirected<NodeId = I>,
+                I: Copy,
+            {
+                let children = vec![];
+                for child in graph.neighbors_directed(parent.this, Direction::Outgoing) {
+                    let mut child = TreeNode {
+                        parent: None,
+                        this: child,
+                        children: vec![],
+                    };
+                    fill_node(&mut child, graph);
+                    parent.children.push(child);
+                    for child in &mut parent.children {
+                        child.parent = Some(&parent)
+                    }
+                }
+            }
+            fill_node(&mut root, graph);
+        }
+    }
+
+    #[test]
+    fn test() {
+        let graph = parse_quote!(digraph {
+            a -> b1 -> c1;
+            a -> b2 -> c2;
+        });
+        let graph = from_dot::<DiGraphMap<_, _>>(&graph).unwrap();
+
+        let mut root = None;
+        for node in graph.nodes() {
+            match graph.neighbors_directed(node, Direction::Incoming).count() {
+                0 => {
+                    assert!(
+                        root.is_none(),
+                        "tree must have exactly one root. Duplicate: {}",
+                        node.id.into_token_stream()
+                    );
+                    root = Some(node);
+                }
+                1 => {}
+                _ => panic!("graph is not a tree"),
+            }
+        }
+        let root = root.expect("tree has no roots");
+
+        for (depth, members) in petgraph::algo::dijkstra(&graph, root, None, |_| 1usize)
+            .into_iter()
+            .sorted_by_key(|(_, depth)| *depth)
+            .group_by(|(_, depth)| *depth)
+            .into_iter()
+            .map(|(depth, members)| (depth, members.map(|(it, _)| it).collect::<Vec<_>>()))
+        {
+            println!(
+                "{depth}: [{}]",
+                members
+                    .iter()
+                    .map(|it| it.id.into_token_stream())
+                    .join(", ")
+            )
+        }
     }
 }
