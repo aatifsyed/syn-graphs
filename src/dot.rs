@@ -539,7 +539,7 @@ impl EdgeTarget {
 pub enum EdgeDirectedness {
     #[peek(pun::DirectedEdge, name = "->")]
     Directed(pun::DirectedEdge),
-    #[peek(Token![-], name = "--")]
+    #[peek(syn::token::Minus, name = "--")]
     Undirected(UndirectedEdge),
 }
 
