@@ -1,5 +1,4 @@
 pub mod dot;
-pub mod mermaid;
 pub mod pet;
 pub mod unparse;
 
