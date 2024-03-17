@@ -34,7 +34,6 @@ macro_rules! enum_of_kws {
         #[derive(
             derive_syn_parse::Parse,
             derive_quote_to_tokens::ToTokens,
-            derive_more::Display,
             Debug,
             PartialEq,
             Eq,
@@ -45,9 +44,18 @@ macro_rules! enum_of_kws {
             $(
                 // stringify!($inner) doesn't work here
                 #[peek($inner, name = $lit)]
-                #[display(fmt = $lit)]
                 $variant($inner),
             )*
+        }
+        impl std::fmt::Display for $this {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let s = match self {
+                    $(
+                        Self::$variant(_) => $lit,
+                    )*
+                };
+                f.write_str(s)
+            }
         }
     };
 }

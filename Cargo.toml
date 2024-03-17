@@ -23,20 +23,12 @@ syn = { version = "2.0.37", default-features = false, features = [
 ] }
 quote = { version = "1.0.33", default-features = false }
 derive-quote-to-tokens = "0.1.1"
-derive_more = { version = "0.99.17", default-features = false, features = [
-    "display",
-] }
-petgraph = "0.6.4"
+petgraph = { version = "0.6.4", default-features = false }
 
 [dev-dependencies]
 colored = "2.0.4"
-either = "1.9.0"
 include_dir = "0.7.3"
 miette = { version = "5.10.0", features = ["fancy"] }
 pretty_assertions = "1.4.0"
-proc-macro2 = { version = "1.0.67", default-features = false, features = [
-    "span-locations",
-] }
-thiserror = "1.0.48"
 syn-miette = "0.1.0"
 petgraph = "0.6.4"
